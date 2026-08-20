@@ -1481,7 +1481,8 @@ export default {
 
     const operatorRoute = url.pathname.match(/^\/api\/v1\/(courses\/[^/]+\/(?:tee-times|rounds|publication|map-layers|knowledge|assistant|question-insights|tap-points|tap-events|announcements|services|service-requests|operator-profile|operator-review|operator-metrics|billing)|tee-times\/[^/]+\/status|service-requests\/[^/]+\/status|rounds\/[^/]+\/verification|course-claims(?:\/[^/]+\/review)?$)/);
     const golferServiceRequest = url.pathname.endsWith('/service-requests') && request.method === 'POST';
-    if (operatorRoute && !golferServiceRequest && request.method !== 'OPTIONS') {
+    const publicServiceCatalog = url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/services$/) && request.method === 'GET';
+    if (operatorRoute && !golferServiceRequest && !publicServiceCatalog && request.method !== 'OPTIONS') {
       const operatorError = requireOperatorAccess(request);
       if (operatorError) return withCors(operatorError, request, env);
     }
