@@ -70,3 +70,16 @@ reservations from an operator-authorized connector:
 The import is idempotent for `(course, sourceSystem, externalReservationId)`.
 It does not change the course's tee sheet, collect payment, or claim that a
 reservation is valid beyond the source system's supplied status.
+
+Operators can review imported reservations with:
+
+`GET /api/v1/courses/:courseId/tee-times?date=2026-09-01&status=checked_in`
+
+That view includes claimed player slots and linked round IDs, but does not
+change the external reservation. It is the starting point for the operator
+dashboard's arrivals, check-in, service, and tee-time analytics views.
+
+When a golfer requests an approved food, beverage, or player service during a
+bound round, the service request retains the same tee-time reservation ID. The
+course can therefore measure service activity by booked group without exposing
+the external reservation identifier to the golfer.

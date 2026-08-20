@@ -270,6 +270,33 @@ async function getOperatorPlans(env: Env): Promise<Response> {
   ], pricingStatus: 'proposed_test_ranges', sourceBoundary: 'Stripe price and entitlement state are server-controlled. The browser never selects a price amount.' });
 }
 
+async function getOperatorTeeTimes(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id');
+  if (!organizationId) return error('Organization identity is required.', 400, 'INVALID_INPUT');
+  if (!isValidId(courseId)) return error('Course id is invalid.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id, name FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first<{ id: string; name: string }>();
+  if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const url = new URL(request.url);
+  const date = url.searchParams.get('date');
+  const status = url.searchParams.get('status');
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return error('date must use YYYY-MM-DD.', 400, 'INVALID_INPUT');
+  if (status && !isTeeTimeStatus(status)) return error('status is invalid.', 400, 'INVALID_INPUT');
+  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 100), 1), 200);
+  const conditions = ['r.course_id = ?1', 'r.organization_id = ?2'];
+  const binds: unknown[] = [courseId, organizationId];
+  if (date) { conditions.push(`r.starts_at >= ?${binds.length + 1}`, `r.starts_at < ?${binds.length + 2}`); binds.push(`${date}T00:00:00.000Z`, `${date}T23:59:59.999Z`); }
+  if (status) { conditions.push(`r.status = ?${binds.length + 1}`); binds.push(status); }
+  const reservations = await env.DB.prepare(`SELECT r.id, r.source_system, r.external_reservation_id, r.starts_at, r.player_count, r.status, r.booking_url, r.imported_at, r.updated_at
+    FROM golf_tee_time_reservations r WHERE ${conditions.join(' AND ')} ORDER BY r.starts_at ASC LIMIT ?${binds.length + 1}`).bind(...binds, limit).all();
+  const ids = reservations.results.map((row) => String((row as Record<string, unknown>).id));
+  const players = ids.length ? await env.DB.prepare(`SELECT p.reservation_id, p.player_index, p.state_of_stick_person_id, p.assigned_at, p.round_id
+    FROM golf_tee_time_players p WHERE p.reservation_id IN (${ids.map((_, index) => `?${index + 1}`).join(',')}) ORDER BY p.reservation_id, p.player_index`).bind(...ids).all() : { results: [] };
+  const playersByReservation = new Map<string, unknown[]>();
+  for (const player of players.results) { const key = String((player as Record<string, unknown>).reservation_id); playersByReservation.set(key, [...(playersByReservation.get(key) ?? []), player]); }
+  return json({ course, teeTimes: reservations.results.map((row) => ({ ...row, players: playersByReservation.get(String((row as Record<string, unknown>).id)) ?? [] })), sourceBoundary: 'Operator-only view. Availability, price, payment, and reservation validity remain owned by the external tee sheet.' }, 200, { 'cache-control': 'private, no-store' });
+}
+
 async function importTeeTimes(request: Request, env: Env, courseId: string): Promise<Response> {
   const authError = requireWriteAccess(request, env); if (authError) return authError;
   const organizationId = request.headers.get('x-state-of-stick-organization-id');
@@ -978,14 +1005,15 @@ async function createServiceRequest(request: Request, env: Env, courseId: string
   let allowedModes: unknown = []; try { allowedModes = JSON.parse(service.fulfillment_modes); } catch { /* malformed operator data remains unavailable */ }
   if (!Array.isArray(allowedModes) || !allowedModes.includes(fulfillment)) return error('That fulfillment mode is not available for this service.', 400, 'INVALID_INPUT');
   const roundId = typeof body.roundId === 'string' && /^round-[a-zA-Z0-9-]{8,100}$/.test(body.roundId) ? body.roundId : null;
-  if (roundId) { const round = await env.DB.prepare('SELECT id FROM golf_rounds WHERE id = ?1 AND course_id = ?2 AND state_of_stick_person_id = ?3').bind(roundId, courseId, personId).first(); if (!round) return error('Round is not available for this golfer and course.', 403, 'FORBIDDEN'); }
+  let teeTimeReservationId: string | null = null;
+  if (roundId) { const round = await env.DB.prepare('SELECT id, tee_time_reservation_id FROM golf_rounds WHERE id = ?1 AND course_id = ?2 AND state_of_stick_person_id = ?3').bind(roundId, courseId, personId).first<{ id: string; tee_time_reservation_id: string | null }>(); if (!round) return error('Round is not available for this golfer and course.', 403, 'FORBIDDEN'); teeTimeReservationId = round.tee_time_reservation_id; }
   const note = typeof body.note === 'string' ? body.note.slice(0, 500) : null; const id = `service-request-${crypto.randomUUID()}`; const now = new Date().toISOString(); const totalCents = calculateServiceTotal(service.price_cents, quantity);
   await env.DB.batch([
-    env.DB.prepare(`INSERT INTO golf_service_requests (id, course_id, organization_id, service_id, person_id, round_id, status, quantity, note, fulfillment, total_cents, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'requested', ?7, ?8, ?9, ?10, ?11, ?11)`).bind(id, courseId, service.organization_id, service.id, personId, roundId, quantity, note, fulfillment, totalCents, now),
+    env.DB.prepare(`INSERT INTO golf_service_requests (id, course_id, organization_id, service_id, person_id, round_id, tee_time_reservation_id, status, quantity, note, fulfillment, total_cents, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'requested', ?8, ?9, ?10, ?11, ?12, ?12)`).bind(id, courseId, service.organization_id, service.id, personId, roundId, teeTimeReservationId, quantity, note, fulfillment, totalCents, now),
     env.DB.prepare(`INSERT INTO golf_service_request_events (id, request_id, organization_id, actor_person_id, from_status, to_status, note, created_at) VALUES (?1, ?2, ?3, ?4, NULL, 'requested', ?5, ?6)`).bind(`service-event-${crypto.randomUUID()}`, id, service.organization_id, personId, note, now),
     platformEventStatement(env.DB, { eventId: `platform-${id}`, eventName: 'golf.service_requested', organizationId: service.organization_id, courseId, aggregateType: 'service_request', aggregateId: id, occurredAt: now, payload: { serviceId: service.id, serviceType: 'operator_service', quantity, fulfillment, totalCents, hasNote: Boolean(note) } }),
   ]);
-  return json({ request: { id, courseId, serviceId: service.id, status: 'requested', quantity, fulfillment, totalCents, createdAt: now } }, 201);
+  return json({ request: { id, courseId, serviceId: service.id, roundId, teeTimeReservationId, status: 'requested', quantity, fulfillment, totalCents, createdAt: now } }, 201);
 }
 
 async function getServiceRequests(request: Request, env: Env, courseId: string): Promise<Response> {
@@ -1270,6 +1298,8 @@ export default {
       response = await getOperatorPlans(env);
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tee-times\/import$/) && request.method === 'POST') {
       response = await importTeeTimes(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tee-times$/) && request.method === 'GET') {
+      response = await getOperatorTeeTimes(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/tee-time-activations\/[^/]+\/claim$/) && request.method === 'POST') {
       response = await claimTeeTimeSlot(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/tee-time-activations\/[^/]+\/start-round$/) && request.method === 'POST') {
