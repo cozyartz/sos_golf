@@ -47,9 +47,13 @@ The API currently exposes:
 - `GET /api/v1/courses/:courseId/service-requests`
 - `POST /api/v1/service-requests/:requestId/status`
 - `POST /api/v1/leagues`
+- `POST /api/v1/leagues/:leagueId/matches`
+- `GET /api/v1/leagues/:leagueId/matches`
+- `POST /api/v1/matches/:matchId/entries`
 - `GET /api/v1/players/:personId/intelligence`
 - `GET /api/v1/leagues/:leagueId/intelligence`
 - `GET /api/v1/courses/:courseId/intelligence`
+- `GET /api/v1/courses/:courseId/operator-metrics`
 - `POST /api/v1/assistant`
 - `POST /api/v1/intelligence/:insightId/feedback`
 - `GET /api/v1/courses/:courseId/knowledge`

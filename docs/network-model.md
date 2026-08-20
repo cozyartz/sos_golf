@@ -23,3 +23,13 @@ Durable Objects can carry live leaderboard, round status, event update, and chec
 ## Operator boundary
 
 Operator writes require the existing Worker write-auth seam plus organization and actor headers. Map approval, announcement creation, score review, and future course editing all append operator audit events. Production authorization must replace the temporary service token with verified State of Stick organization membership before broad operator access is enabled.
+
+## Portable matches
+
+A league match is independent of the course. Each participant submits one
+verified 18-hole round from an eligible league course, along with the tee set
+and a handicap index whose source is recorded. The deterministic competition
+engine applies course handicap and hole-by-hole handicap strokes before
+comparing net stroke-play or Stableford results; it never asks AI to decide
+who won. Player-entered handicaps remain provisional until an approved
+governing-body provider or commissioner workflow supplies the value.

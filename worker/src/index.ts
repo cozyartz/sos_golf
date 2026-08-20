@@ -3,6 +3,7 @@ import { calculateLeaguePoints, canVerifyRound, pageWindow, trustLevelForEvents,
 import { classifyCourseQuestion, deterministicIntelligence, type IntelligenceFact } from '../../src/lib/intelligence';
 import { buildGolfAgentPrompt, extractGolfAgentText } from '../../src/lib/agent';
 import { calculateServiceTotal, canTransitionServiceRequest, type GolfServiceType, type ServiceRequestStatus } from '../../src/lib/services';
+import { calculateHandicapStableford, calculateProvisionalCourseHandicap, resolveCompetition, type CompetitionFormat } from '../../src/lib/competition';
 
 type JsonObject = Record<string, unknown>;
 
@@ -168,6 +169,23 @@ async function getOperatorIntelligence(request: Request, env: Env, courseId: str
   const facts = [factFrom(`course:${courseId}:rounds`, 'Round volume', String(volume?.count ?? 0)), factFrom(`course:${courseId}:players`, 'Active players', String(activePlayers?.count ?? 0)), factFrom(`course:${courseId}:incomplete`, 'Incomplete rounds', String(incomplete?.count ?? 0)), factFrom(`course:${courseId}:taps`, 'StickLink tap events', String(taps?.count ?? 0)), factFrom(`course:${courseId}:geometry`, 'Unapproved geometry layers', String(geometry?.count ?? 0))];
   const insight = deterministicIntelligence.operatorSummary(facts); const insightId = await persistInsight(env, insight, { organizationId, courseId });
   return json({ courseId, metrics: { roundVolume: volume?.count ?? 0, activePlayers: activePlayers?.count ?? 0, incompleteRounds: incomplete?.count ?? 0, stickLinkTaps: taps?.count ?? 0, unapprovedGeometry: geometry?.count ?? 0 }, insight, insightId, sourceBoundary: 'Player-submitted observations remain separate from operator-confirmed facts.' }, 200, { 'cache-control': 'private, no-store' });
+}
+
+async function getOperatorMetrics(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); if (!organizationId) return error('Organization identity is required.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first(); if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const [taps, uniqueGolfers, activeRounds, requests, serviceValue, questions, busiestTap] = await Promise.all([
+    env.DB.prepare('SELECT COUNT(*) AS count FROM golf_tap_events WHERE course_id = ?1 AND created_at >= ?2').bind(courseId, since).first<{ count: number }>(),
+    env.DB.prepare('SELECT COUNT(DISTINCT person_id) AS count FROM golf_tap_events WHERE course_id = ?1 AND person_id IS NOT NULL AND created_at >= ?2').bind(courseId, since).first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM golf_rounds WHERE course_id = ?1 AND status IN ('in_progress', 'submitted')").bind(courseId).first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) AS count, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed FROM golf_service_requests WHERE course_id = ?1 AND created_at >= ?2").bind(courseId, since).first<{ count: number; completed: number | null }>(),
+    env.DB.prepare("SELECT COALESCE(SUM(total_cents), 0) AS cents FROM golf_service_requests WHERE course_id = ?1 AND status = 'completed' AND created_at >= ?2").bind(courseId, since).first<{ cents: number }>(),
+    env.DB.prepare('SELECT COUNT(*) AS count, SUM(CASE WHEN answered_from_approved_context = 0 THEN 1 ELSE 0 END) AS unanswered FROM golf_course_question_events WHERE course_id = ?1 AND created_at >= ?2').bind(courseId, since).first<{ count: number; unanswered: number | null }>(),
+    env.DB.prepare(`SELECT s.label, s.location_type, COUNT(e.id) AS taps FROM golf_sticklink_locations s LEFT JOIN golf_tap_events e ON e.tap_point_id = s.id AND e.created_at >= ?2 WHERE s.course_id = ?1 GROUP BY s.id ORDER BY taps DESC, s.label LIMIT 1`).bind(courseId, since).first<{ label: string; location_type: string; taps: number }>(),
+  ]);
+  return json({ courseId, window: { since, until: new Date().toISOString() }, metrics: { tapEvents: Number(taps?.count ?? 0), uniqueGolfers: Number(uniqueGolfers?.count ?? 0), activeRounds: Number(activeRounds?.count ?? 0), serviceRequests: Number(requests?.count ?? 0), completedServiceRequests: Number(requests?.completed ?? 0), recordedCompletedServiceValueCents: Number(serviceValue?.cents ?? 0), golfAgentQuestions: Number(questions?.count ?? 0), unansweredGolfAgentQuestions: Number(questions?.unanswered ?? 0), busiestTap: busiestTap ? { label: busiestTap.label, locationType: busiestTap.location_type, taps: Number(busiestTap.taps) } : null }, sourceBoundary: 'Counts are derived from recorded D1 activity. Recorded service value is not settled revenue and does not imply payment or POS integration.' }, 200, { 'cache-control': 'private, no-store' });
 }
 
 async function answerAssistant(request: Request, env: Env): Promise<Response> {
@@ -727,6 +745,72 @@ async function getLiveLeague(request: Request, env: Env, leagueId: string): Prom
   return json({ leagueId, standings: standings.results, events, source: 'd1-authoritative-with-durable-object-live-events' }, 200, { 'cache-control': league.visibility === 'public' ? 'public, max-age=5' : 'private, no-store' });
 }
 
+async function createLeagueMatch(request: Request, env: Env, leagueId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); const actorId = request.headers.get('x-state-of-stick-person-id');
+  if (!organizationId || !actorId || !isValidPersonId(actorId)) return error('Organization and actor identity are required.', 400, 'INVALID_INPUT');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  const playerA = body.playerAId; const playerB = body.playerBId;
+  if (typeof playerA !== 'string' || !isValidPersonId(playerA) || typeof playerB !== 'string' || !isValidPersonId(playerB) || playerA === playerB) return error('Two different valid player ids are required.', 400, 'INVALID_INPUT');
+  const league = await env.DB.prepare('SELECT id, format, status FROM golf_leagues WHERE id = ?1 AND organization_id = ?2').bind(leagueId, organizationId).first<{ id: string; format: CompetitionFormat; status: string }>();
+  if (!league) return error('League not found in this organization.', 404, 'NOT_FOUND');
+  if (league.status !== 'active') return error('Matches can only be created in an active league.', 409, 'LEAGUE_NOT_ACTIVE');
+  if (league.format !== 'stroke_play' && league.format !== 'stableford') return error('Portable matches currently support stroke play or Stableford leagues only.', 409, 'FORMAT_NOT_SUPPORTED');
+  const enrollments = await env.DB.prepare("SELECT person_id FROM golf_league_enrollments WHERE league_id = ?1 AND person_id IN (?2, ?3) AND status = 'active'").bind(leagueId, playerA, playerB).all();
+  if (enrollments.results.length !== 2) return error('Both players must be active league members.', 409, 'PLAYER_NOT_ENROLLED');
+  const id = `match-${crypto.randomUUID()}`; const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO golf_league_matches (id, league_id, player_a_id, player_b_id, format, status, scheduled_for, created_by_person_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 'scheduled', ?6, ?7, ?8, ?8)`).bind(id, leagueId, playerA, playerB, league.format, typeof body.scheduledFor === 'string' ? body.scheduledFor.slice(0, 80) : null, actorId, now),
+    env.DB.prepare(`INSERT INTO golf_operator_audit_events (id, organization_id, actor_person_id, action, entity_type, entity_id, details_json, created_at) VALUES (?1, ?2, ?3, 'create', 'league_match', ?4, ?5, ?6)`).bind(`op-${crypto.randomUUID()}`, organizationId, actorId, id, JSON.stringify({ playerA, playerB, format: league.format }), now),
+  ]);
+  return json({ match: { id, leagueId, playerAId: playerA, playerBId: playerB, format: league.format, status: 'scheduled' } }, 201);
+}
+
+async function getLeagueMatches(request: Request, env: Env, leagueId: string): Promise<Response> {
+  if (!isValidId(leagueId)) return error('League id is invalid.', 400, 'INVALID_INPUT');
+  const league = await env.DB.prepare('SELECT id, visibility FROM golf_leagues WHERE id = ?1').bind(leagueId).first<{ id: string; visibility: string }>(); if (!league) return error('League not found.', 404, 'NOT_FOUND');
+  if (league.visibility === 'private') {
+    const personId = request.headers.get('x-state-of-stick-person-id'); if (!personId || !isValidPersonId(personId)) return error('Private league access requires a golfer identity.', 401, 'UNAUTHORIZED');
+    const member = await env.DB.prepare("SELECT 1 FROM golf_league_enrollments WHERE league_id = ?1 AND person_id = ?2 AND status = 'active'").bind(leagueId, personId).first(); if (!member) return error('This league is private.', 403, 'FORBIDDEN');
+  }
+  const matches = await env.DB.prepare(`SELECT m.id, m.league_id, m.player_a_id, m.player_b_id, m.format, m.status, m.scheduled_for, m.result_json, m.created_at, m.updated_at,
+    (SELECT COUNT(*) FROM golf_league_match_entries e WHERE e.match_id = m.id) AS submitted_entries
+    FROM golf_league_matches m WHERE m.league_id = ?1 ORDER BY m.scheduled_for, m.created_at DESC LIMIT 100`).bind(leagueId).all();
+  return json({ leagueId, matches: matches.results.map((match) => ({ ...match, result: typeof match.result_json === 'string' ? JSON.parse(match.result_json) : null })) }, 200, { 'cache-control': league.visibility === 'public' ? 'public, max-age=30' : 'private, no-store' });
+}
+
+async function submitLeagueMatchEntry(request: Request, env: Env, matchId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const playerId = request.headers.get('x-state-of-stick-person-id'); if (!playerId || !isValidPersonId(playerId)) return error('A golfer identity is required.', 400, 'INVALID_INPUT');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  const match = await env.DB.prepare('SELECT id, league_id, player_a_id, player_b_id, format, status FROM golf_league_matches WHERE id = ?1').bind(matchId).first<{ id: string; league_id: string; player_a_id: string; player_b_id: string; format: CompetitionFormat; status: string }>();
+  if (!match) return error('Match not found.', 404, 'NOT_FOUND');
+  if (match.status === 'complete' || match.status === 'cancelled') return error('This match is no longer accepting entries.', 409, 'MATCH_CLOSED');
+  if (playerId !== match.player_a_id && playerId !== match.player_b_id) return error('Only a match participant may submit an entry.', 403, 'FORBIDDEN');
+  if (typeof body.roundId !== 'string' || !/^round-[a-zA-Z0-9-]{8,100}$/.test(body.roundId) || typeof body.teeSetId !== 'string' || !isValidId(body.teeSetId.replace(/-/g, 'x'))) return error('roundId and teeSetId are required.', 400, 'INVALID_INPUT');
+  const handicapIndex = Number(body.handicapIndex); if (!Number.isFinite(handicapIndex) || handicapIndex < -10 || handicapIndex > 54) return error('handicapIndex must be between -10 and 54.', 400, 'INVALID_INPUT');
+  const round = await env.DB.prepare(`SELECT r.id, r.course_id, r.status, r.state_of_stick_person_id, t.id AS tee_id, t.rating, t.slope, COUNT(s.hole_number) AS holes_completed, COALESCE(SUM(s.strokes), 0) AS gross_strokes
+    FROM golf_rounds r JOIN golf_tee_sets t ON t.id = ?2 AND t.course_id = r.course_id LEFT JOIN golf_hole_scores s ON s.round_id = r.id
+    WHERE r.id = ?1 AND r.state_of_stick_person_id = ?3 GROUP BY r.id, t.id`).bind(body.roundId, body.teeSetId, playerId).first<{ id: string; course_id: string; status: string; tee_id: string; rating: number; slope: number; holes_completed: number; gross_strokes: number }>();
+  if (!round) return error('Verified round and tee set were not found for this golfer.', 404, 'NOT_FOUND');
+  if (round.status !== 'verified') return error('Only verified rounds can produce a portable match result.', 409, 'ROUND_NOT_VERIFIED');
+  const eligible = await env.DB.prepare('SELECT 1 FROM golf_league_courses WHERE league_id = ?1 AND course_id = ?2').bind(match.league_id, round.course_id).first(); if (!eligible) return error('This course is not eligible for the league.', 409, 'COURSE_NOT_ELIGIBLE');
+  const parRow = await env.DB.prepare('SELECT COALESCE(SUM(par), 72) AS par FROM golf_holes WHERE course_id = ?1').bind(round.course_id).first<{ par: number }>();
+  const courseHandicap = calculateProvisionalCourseHandicap(handicapIndex, Number(round.slope), Number(round.rating), Number(parRow?.par ?? 72));
+  const scores = await env.DB.prepare('SELECT hole_number AS hole, strokes, tap_verified AS tapVerified, witness_confirmed AS witnessConfirmed FROM golf_hole_scores WHERE round_id = ?1 ORDER BY hole_number').bind(body.roundId).all();
+  const holes = await env.DB.prepare('SELECT hole_number, par, handicap_index FROM golf_holes WHERE course_id = ?1').bind(round.course_id).all();
+  const stablefordPoints = match.format === 'stableford' ? calculateHandicapStableford(scores.results.map((row) => ({ hole: Number(row.hole), strokes: Number(row.strokes) })), holes.results.map((row) => ({ number: Number(row.hole_number), par: Number(row.par), handicapIndex: Number(row.handicap_index) })), courseHandicap) : null;
+  const now = new Date().toISOString();
+  try {
+    await env.DB.prepare(`INSERT INTO golf_league_match_entries (match_id, player_id, round_id, course_id, tee_set_id, gross_strokes, course_handicap, stableford_points, handicap_index, handicap_source, holes_completed, trust_level, verified, submitted_at, verified_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'provisional_player_input', ?10, 'course_confirmed', 1, ?11, ?11)`).bind(matchId, playerId, body.roundId, round.course_id, round.tee_id, round.gross_strokes, courseHandicap, stablefordPoints, handicapIndex, round.holes_completed, now).run();
+  } catch { return error('This golfer or round already has an entry in the match.', 409, 'ENTRY_EXISTS'); }
+  const entryRows = await env.DB.prepare('SELECT player_id, course_id, gross_strokes, course_handicap, handicap_index, handicap_source, stableford_points, holes_completed, verified FROM golf_league_match_entries WHERE match_id = ?1 ORDER BY player_id').bind(matchId).all();
+  const entries = entryRows.results.map((row) => ({ playerId: String(row.player_id), courseId: String(row.course_id), grossStrokes: Number(row.gross_strokes), courseHandicap: Number(row.course_handicap), handicapIndex: Number(row.handicap_index), handicapSource: String(row.handicap_source), stablefordPoints: row.stableford_points === null ? undefined : Number(row.stableford_points), holesCompleted: Number(row.holes_completed), verified: Boolean(row.verified) }));
+  const result = resolveCompetition(match.format, entries); const nextStatus = result.status === 'complete' ? 'complete' : 'in_progress';
+  await env.DB.prepare('UPDATE golf_league_matches SET status = ?1, result_json = ?2, updated_at = ?3 WHERE id = ?4').bind(nextStatus, JSON.stringify(result), now, matchId).run();
+  return json({ matchId, result, status: nextStatus }, 201);
+}
+
 async function createLeague(request: Request, env: Env): Promise<Response> {
   const authError = requireWriteAccess(request, env); if (authError) return authError;
   const organizationId = request.headers.get('x-state-of-stick-organization-id'); const actorId = request.headers.get('x-state-of-stick-person-id');
@@ -872,12 +956,20 @@ export default {
       response = await updateCourseProfile(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/operator-review$/) && request.method === 'POST') {
       response = await operatorCourseReview(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/operator-metrics$/) && request.method === 'GET') {
+      response = await getOperatorMetrics(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/intelligence$/) && request.method === 'GET') {
       response = await getOperatorIntelligence(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname === '/api/v1/courses' && request.method !== 'GET') {
       response = error('Course writes are not available on the public API.', 405, 'METHOD_NOT_ALLOWED');
     } else if (url.pathname.startsWith('/api/v1/courses/') && request.method === 'GET') {
       response = await getCourse(env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/leagues\/[^/]+\/matches$/) && request.method === 'POST') {
+      response = await createLeagueMatch(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/leagues\/[^/]+\/matches$/) && request.method === 'GET') {
+      response = await getLeagueMatches(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/matches\/[^/]+\/entries$/) && request.method === 'POST') {
+      response = await submitLeagueMatchEntry(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname === '/api/v1/leagues' && request.method === 'POST') {
       response = await createLeague(request, env);
     } else if (url.pathname.startsWith('/api/v1/leagues/') && request.method === 'GET') {

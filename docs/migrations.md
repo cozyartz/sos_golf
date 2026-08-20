@@ -7,6 +7,7 @@
 - `0005_operator_services.sql` — operator-managed service catalog, golfer service requests, fulfillment states, and request event history. Payment/POS settlement remains outside this migration.
 - `0006_course_knowledge_and_taps.sql` — approved course knowledge records, tap-point lifecycle fields, and tap-event ledger for grounded guidance and physical interaction.
 - `0007_course_question_signals.sql` — privacy-preserving question categories and answerability signals for operator content improvement.
-- `0007_course_question_signals.sql` — privacy-preserving question categories and answerability signals for operator content improvement.
+- `0008_portable_matches.sql` — cross-course league matches and verified round entries with provisional course-handicap normalization.
+- `0009_match_handicap_provenance.sql` — explicit handicap index and source fields so competition trust is visible and auditable.
 
 Wrangler applies all pending migrations in order. Review the complete pending set before applying against D1. Phase 2 changes are source-only until an operator explicitly approves local or remote migration application.
