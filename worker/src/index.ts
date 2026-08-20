@@ -309,6 +309,23 @@ async function getCourseKnowledge(env: Env, courseId: string, operator = false):
   return json({ courseId, knowledge: records.results, sourceBoundary: operator ? 'Operator-managed records; unpublished content is not used for public guidance.' : 'Published course records only; the Golf Agent must refuse unsupported questions.' }, 200, { 'cache-control': operator ? 'private, no-store' : 'public, max-age=60' });
 }
 
+async function getOperatorKnowledge(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); if (!organizationId) return error('Organization identity is required.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first(); if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  return getCourseKnowledge(env, courseId, true);
+}
+
+async function getOperatorTapPoints(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); if (!organizationId) return error('Organization identity is required.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first(); if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const points = await env.DB.prepare(`SELECT s.id, s.label, s.location_type, s.geometry_json, s.source, s.hardware_id, s.status, s.approved_by_operator, s.approved_at, s.installed_at, s.last_seen_at, COUNT(e.id) AS tap_count
+    FROM golf_sticklink_locations s LEFT JOIN golf_tap_events e ON e.tap_point_id = s.id
+    WHERE s.course_id = ?1 AND s.organization_id = ?2 GROUP BY s.id ORDER BY s.status, s.label`).bind(courseId, organizationId).all();
+  return json({ courseId, tapPoints: points.results, sourceBoundary: 'Operator-only hardware and health view. Public responses never expose hardware ids.' }, 200, { 'cache-control': 'private, no-store' });
+}
+
 async function createCourseKnowledge(request: Request, env: Env, courseId: string): Promise<Response> {
   const authError = requireWriteAccess(request, env); if (authError) return authError;
   const organizationId = request.headers.get('x-state-of-stick-organization-id'); const actorId = request.headers.get('x-state-of-stick-person-id');
@@ -791,6 +808,8 @@ export default {
       response = await getStickLinks(env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/knowledge$/) && request.method === 'GET') {
       response = await getCourseKnowledge(env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/knowledge\/manage$/) && request.method === 'GET') {
+      response = await getOperatorKnowledge(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/knowledge$/) && request.method === 'POST') {
       response = await createCourseKnowledge(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/assistant$/) && request.method === 'POST') {
@@ -799,6 +818,8 @@ export default {
       response = await getCourseQuestionInsights(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tap-points$/) && request.method === 'POST') {
       response = await registerTapPoint(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tap-points$/) && request.method === 'GET') {
+      response = await getOperatorTapPoints(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tap-events$/) && request.method === 'POST') {
       response = await recordTapEvent(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tap-points\/[^/]+\/status$/) && request.method === 'POST') {

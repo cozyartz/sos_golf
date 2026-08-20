@@ -53,10 +53,12 @@ The API currently exposes:
 - `POST /api/v1/assistant`
 - `POST /api/v1/intelligence/:insightId/feedback`
 - `GET /api/v1/courses/:courseId/knowledge`
+- `GET /api/v1/courses/:courseId/knowledge/manage`
 - `POST /api/v1/courses/:courseId/knowledge`
 - `POST /api/v1/courses/:courseId/assistant`
 - `GET /api/v1/courses/:courseId/question-insights`
 - `POST /api/v1/courses/:courseId/tap-points`
+- `GET /api/v1/courses/:courseId/tap-points`
 - `POST /api/v1/courses/:courseId/tap-points/:tapPointId/status`
 - `POST /api/v1/courses/:courseId/tap-events`
 
