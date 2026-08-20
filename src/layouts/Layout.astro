@@ -10,6 +10,7 @@ const {
 const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://golf.stateofstick.co').toString();
 const imageUrl = new URL(image, Astro.site ?? 'https://golf.stateofstick.co').toString();
 const siteName = 'StickLink Golf';
+const isPitch = Astro.url.pathname === '/pitch' || Astro.url.pathname === '/pitch/';
 ---
 <!doctype html>
 <html lang="en">
@@ -41,20 +42,24 @@ const siteName = 'StickLink Golf';
     <title>{title}</title>
   </head>
   <body>
-    <header class="site-header shell">
-      <a class="wordmark" href="/"><img src="/brand/golf/sosgolf-logo.png" alt="State of Stick Golf" style="width:38px;height:38px;object-fit:contain;vertical-align:middle;margin-right:8px;" /><span>GOLF</span></a>
-      <nav aria-label="Primary navigation">
+    <header class:list={["site-header", "shell", { "site-header-pitch": isPitch }]}>
+      <a class="wordmark" href="/" aria-label="State of Stick Golf home"><img src="/brand/golf/sosgolf-logo.png" alt="" /><span>STATE OF STICK <i>/ GOLF</i></span></a>
+      {isPitch ? <nav class="pitch-nav" aria-label="Pitch navigation">
+        <a href="#how-it-works">The experience</a>
+        <a href="#founding-partnership">The partnership</a>
+        <a href="/operator/">Operator view</a>
+      </nav> : <nav aria-label="Primary navigation">
         <a href="/round/cedar-ridge/">Play a round</a>
         <a href="/passport/">My passport</a>
         <a href="/league/anywhere/">Play anywhere</a>
         <a href="/network/">Network</a>
         <a href="/discover/">Discover</a>
         <a href="/pitch/">For course owners</a>
-      </nav>
-      <button class="profile-chip" type="button" aria-label="Open golfer profile"><span class="avatar">AC</span><span>Andrea</span><span class="chevron">⌄</span></button>
+      </nav>}
+      {isPitch ? <a class="header-cta" href="#founding-partnership">Discuss partnership <span>↗</span></a> : <button class="profile-chip" type="button" aria-label="Open golfer profile"><span class="avatar">AC</span><span>Andrea</span><span class="chevron">⌄</span></button>}
     </header>
     <main>
-      <div class="shell page-eyebrow">{eyebrow}</div>
+      <div class:list={["shell", "page-eyebrow", { "pitch-page-eyebrow": isPitch }]}>{eyebrow}</div>
       <slot />
     </main>
     <footer class="shell site-footer"><span>PHYSICAL THINGS, LIVING STORIES.</span><span>Proposed first pilot · State of Stick Golf · <a href="https://stateofstick.co/" rel="noopener">State of Stick, Co.</a></span></footer>
