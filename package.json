@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "check": "astro check"
+    "check": "astro check",
+    "api:dev": "npx wrangler dev --config worker/wrangler.jsonc",
+    "api:types": "npx wrangler types worker/worker-configuration.d.ts --config worker/wrangler.jsonc --include-runtime=false",
+    "api:check": "tsc -p worker/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.7",
@@ -13,6 +16,8 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
-    "typescript": "^6.0.3"
+    "@cloudflare/workers-types": "^5.20260820.1",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.124.0"
   }
 }
