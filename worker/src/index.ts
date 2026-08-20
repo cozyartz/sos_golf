@@ -6,6 +6,7 @@ import { calculateServiceTotal, canTransitionServiceRequest, type GolfServiceTyp
 import { calculateHandicapStableford, calculateProvisionalCourseHandicap, resolveCompetition, type CompetitionFormat } from '../../src/lib/competition';
 import { createOperatorCheckout, stripeObjectString, verifyStripeWebhook, type StripeEvent } from './stripe';
 import { platformEventStatement } from './platform';
+import { golferPlans } from '../../src/lib/membership';
 
 type JsonObject = Record<string, unknown>;
 
@@ -251,9 +252,25 @@ async function reviewCourseClaim(request: Request, env: Env, claimId: string): P
 
 async function getOperatorPlans(env: Env): Promise<Response> {
   return json({ plans: [
-    { key: 'network_course', name: 'Network Course', billing: 'free', description: 'Public course presence, approved facts, league participation, and golfer discovery.' },
-    { key: 'connected_course', name: 'Connected Course', billing: 'subscription', checkoutConfigured: Boolean(getEnvString(env, 'GOLF_CONNECTED_COURSE_PRICE_ID')), description: 'Tap and QR touchpoints, service requests, Golf Agent, and operator analytics.' },
-  ], sourceBoundary: 'Stripe price and entitlement state are server-controlled. The browser never selects a price amount.' });
+    { key: 'network_course', name: 'Network Course', billing: 'free', priceDisplay: '$0', description: 'Public course presence, approved facts, league participation, and golfer discovery.' },
+    { key: 'connected_course', name: 'Connected Course', billing: 'subscription', priceDisplay: '$249–$499/month proposed pilot range', implementationDisplay: '$500–$2,500 proposed setup range', checkoutConfigured: Boolean(getEnvString(env, 'GOLF_CONNECTED_COURSE_PRICE_ID')), description: 'Tap and QR touchpoints, service requests, Golf Agent, and operator analytics.' },
+  ], pricingStatus: 'proposed_test_ranges', sourceBoundary: 'Stripe price and entitlement state are server-controlled. The browser never selects a price amount.' });
+}
+
+async function getGolferMembershipPlans(): Promise<Response> {
+  return json({
+    plans: golferPlans.map((plan) => ({
+      key: plan.key,
+      name: plan.name,
+      priceDisplay: plan.priceDisplay,
+      billingDisplay: plan.billingDisplay,
+      aiQuestionsPerMonth: plan.aiQuestionsPerMonth,
+      features: plan.features,
+      proposed: plan.proposed,
+    })),
+    pricingStatus: 'proposed_test_ranges',
+    billingBoundary: 'State of Stick owns live golfer subscriptions, Stripe customers, entitlements, usage, and cancellations. This endpoint is catalog metadata only.',
+  }, 200, { 'cache-control': 'public, max-age=300' });
 }
 
 async function createOperatorBillingCheckout(request: Request, env: Env, courseId: string): Promise<Response> {
@@ -1116,6 +1133,8 @@ export default {
     let response: Response;
     if (url.pathname === '/api/v1/operator-plans' && request.method === 'GET') {
       response = await getOperatorPlans(env);
+    } else if (url.pathname === '/api/v1/golfer-membership-plans' && request.method === 'GET') {
+      response = await getGolferMembershipPlans();
     } else if (url.pathname === '/api/v1/stripe/webhook' && request.method === 'POST') {
       response = await handleGolfStripeWebhook(request, env);
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/billing\/checkout$/) && request.method === 'POST') {

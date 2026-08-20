@@ -20,6 +20,49 @@ deeper personal intelligence, advanced competition, and league tools.
 The definitions live in `src/lib/membership.ts`. They are product definitions,
 not live entitlements or a price list.
 
+The current pricing test ranges are Player Plus at $5–$8 per month ($48–$72
+per year) and Pro Golfer at $10–$15 per month ($96–$144 per year). These are
+deliberately test ranges, not published prices. The first paid experiment
+should test annual conversion and retention with a small group before adding
+more tiers.
+
+The recommended monetization order is:
+
+1. **Connected Course revenue first.** Courses pay for the operator console,
+   approved course content, tap/service workflows, analytics, and the ability
+   to sponsor a basic golfer experience.
+2. **Golfer depth second.** Keep scoring, passport, public participation, and
+   a useful starter Golf Agent allowance free. Charge for deeper personal
+   analytics, practice suggestions, season views, private leagues, and custom
+   competition.
+3. **League and event programs third.** Charge a commissioner, course, sponsor,
+   or league for a defined season or event package rather than forcing every
+   casual golfer into a subscription.
+
+This gives courses a reason to help acquire members and reserves golfer
+payments for durable personal value.
+
+## Suggested operator pricing test
+
+The current product contract can support this simple offer:
+
+- **Network Course — $0:** public profile, approved course facts, discovery,
+  and participation in the network.
+- **Connected Course — test at $249–$499/month per location:** tap/QR
+  touchpoints, service requests, operator analytics, Golf Agent context, and
+  course-controlled publishing.
+- **Implementation — test at $500–$2,500 one time:** course setup, approved
+  content, touchpoint mapping, menu/services, and staff walkthrough.
+- **Commerce — add only after proof:** consider a small transaction or
+  activation fee when State of Stick demonstrably drives an order, event, or
+  sponsor program. Do not make this the first purchasing objection.
+
+These ranges are internal pilot hypotheses, not market facts or published
+prices. The sales test should ask one course to choose between a lower monthly
+price with a defined pilot scope and a higher price with more implementation
+support. The decision metric is retained monthly revenue and measurable
+operator value, not sign-ups alone.
+
 ## AI charging boundary
 
 State of Stick should own golfer subscriptions, Stripe customers, entitlements,
@@ -39,6 +82,12 @@ Course sponsor → basic course questions may be covered
 Overage should be disabled by default until an explicit opt-in exists. AI
 access must fail closed when the golfer is unauthenticated, the entitlement is
 missing, or the usage ceiling is reached.
+
+The deterministic access evaluator in `src/lib/membership.ts` is a shared
+product contract, not a billing lookup. It does not read Stripe or trust a
+client-supplied plan. The future platform adapter should sync approved
+assignments into the golf projection and record usage with an idempotent event
+key.
 
 ## Course-sponsored access
 
