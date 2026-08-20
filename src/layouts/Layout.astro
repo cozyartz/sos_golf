@@ -1,8 +1,8 @@
 ---
 import '../styles/global.css';
 const {
-  title = 'StickLink Golf',
-  description = 'StickLink Golf connects golfers, courses, and physical touchpoints into a living round passport.',
+  title = 'State of Stick Golf',
+  description = 'State of Stick Golf connects golfers, courses, and physical touchpoints into a living round passport.',
   eyebrow = 'STATE OF STICK / GOLF',
   image = '/art/flagstick-tap-medallion.png',
   type = 'website',
@@ -11,7 +11,7 @@ const {
 } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://golf.stateofstick.co').toString();
 const imageUrl = new URL(image, Astro.site ?? 'https://golf.stateofstick.co').toString();
-const siteName = 'StickLink Golf';
+const siteName = 'State of Stick Golf';
 const isPitch = Astro.url.pathname === '/pitch' || Astro.url.pathname === '/pitch/';
 ---
 <!doctype html>
@@ -56,13 +56,31 @@ const isPitch = Astro.url.pathname === '/pitch' || Astro.url.pathname === '/pitc
         <a href="/round/cedar-ridge/">Play a round</a>
         <a href="/passport/">My passport</a>
         <a href="/league/anywhere/">Play anywhere</a>
-        <a href="/network/">Network</a>
         <a href="/discover/">Discover</a>
-        <a href="/intelligence/">Round intelligence</a>
-        <a href="/membership/">Membership</a>
-        <a href="/pitch/">For course owners</a>
+        <details class="more-nav">
+          <summary>More</summary>
+          <div class="more-nav-menu">
+            <a href="/network/">Network</a>
+            <a href="/intelligence/">Round intelligence</a>
+            <a href="/membership/">Membership</a>
+            <a href="/pitch/">For course owners</a>
+          </div>
+        </details>
       </nav>}
-      {isPitch ? <a class="header-cta" href="#founding-partnership">Discuss partnership <span>↗</span></a> : <button class="profile-chip" type="button" aria-label="Open golfer profile"><span class="avatar">AC</span><span>Andrea</span><span class="chevron">⌄</span></button>}
+      {isPitch ? <a class="header-cta" href="#founding-partnership">Discuss partnership <span>↗</span></a> : <a class="profile-chip" href="/passport/" aria-label="View Andrea's golfer passport"><span class="avatar">AC</span><span>Andrea</span><span class="chevron">↗</span></a>}
+      {!isPitch && <details class="mobile-menu">
+        <summary aria-label="Open navigation menu"><span></span><span></span><span></span></summary>
+        <nav aria-label="Mobile navigation">
+          <a href="/round/cedar-ridge/">Play a round <span>↗</span></a>
+          <a href="/passport/">My passport <span>↗</span></a>
+          <a href="/league/anywhere/">Play anywhere <span>↗</span></a>
+          <a href="/discover/">Discover <span>↗</span></a>
+          <a href="/network/">Network <span>↗</span></a>
+          <a href="/intelligence/">Round intelligence <span>↗</span></a>
+          <a href="/membership/">Membership <span>↗</span></a>
+          <a href="/pitch/">For course owners <span>↗</span></a>
+        </nav>
+      </details>}
     </header>
     <main>
       <div class:list={["shell", "page-eyebrow", { "pitch-page-eyebrow": isPitch }]}>{eyebrow}</div>
