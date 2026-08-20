@@ -3,6 +3,7 @@ import type { D1Database, D1PreparedStatement, Queue } from '@cloudflare/workers
 export type GolfPlatformEventName =
   | 'golf.course_claim_requested'
   | 'golf.round_submitted'
+  | 'golf.round_score_saved'
   | 'golf.tap_interaction'
   | 'golf.service_requested'
   | 'golf.service_status_changed'

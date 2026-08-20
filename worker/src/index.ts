@@ -10,6 +10,7 @@ import { readStateOfStickAssertion } from './identity';
 import type { PlatformIdentityClaims } from '../../src/lib/platform-contract';
 import { golferPlans } from '../../src/lib/membership';
 import { canTransitionTeeTimeStatus, isTeeTimePlayerCount, isTeeTimeSource, isTeeTimeStatus, type TeeTimeStatus } from '../../src/lib/tee-times';
+import type { D1PreparedStatement } from '@cloudflare/workers-types';
 
 type JsonObject = Record<string, unknown>;
 const verifiedIdentityRequests = new WeakSet<Request>();
@@ -940,6 +941,68 @@ async function createRound(request: Request, env: Env): Promise<Response> {
   return json({ round: { id: roundId, status: 'submitted', courseId: input.courseId, format: input.format, scores: input.scores, clientRoundId: input.clientRoundId ?? null } }, 201);
 }
 
+async function startRound(request: Request, env: Env): Promise<Response> {
+  const authError = requireWriteAccess(request, env);
+  if (authError) return authError;
+  const personId = request.headers.get('x-state-of-stick-person-id');
+  if (!personId || !isValidPersonId(personId)) return error('A verified golfer identity is required.', 400, 'PLAYER_IDENTITY_REQUIRED');
+  const body = await readJson(request);
+  if (body instanceof Response) return body;
+  const courseId = body.courseId;
+  const format = body.format === undefined ? 'stroke_play' : body.format;
+  const clientRoundId = body.clientRoundId;
+  if (typeof courseId !== 'string' || !isValidId(courseId)) return error('courseId is invalid.', 400, 'INVALID_INPUT');
+  if (!['stroke_play', 'stableford', 'match_play', 'skins'].includes(String(format))) return error('format is invalid.', 400, 'INVALID_INPUT');
+  if (typeof clientRoundId !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{1,120}$/.test(clientRoundId)) return error('clientRoundId is required.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id FROM golf_courses WHERE id = ?1').bind(courseId).first();
+  if (!course) return error('Course not found.', 404, 'NOT_FOUND');
+  const existing = await env.DB.prepare('SELECT id, status, course_id, format FROM golf_rounds WHERE client_round_id = ?1 AND state_of_stick_person_id = ?2').bind(clientRoundId, personId).first<Record<string, unknown>>();
+  if (existing) return json({ round: { ...existing, deduplicated: true } });
+  const identity = verifiedIdentityFor(request);
+  const organizationId = request.headers.get('x-state-of-stick-organization-id') ?? identity?.organizationId ?? null;
+  const roundId = `round-${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  const statements: D1PreparedStatement[] = [env.DB.prepare(`INSERT INTO golf_rounds (id, course_id, format, status, state_of_stick_person_id, state_of_stick_organization_id, client_round_id, created_at, updated_at)
+    VALUES (?1, ?2, ?3, 'in_progress', ?4, ?5, ?6, ?7, ?7)`).bind(roundId, courseId, format, personId, organizationId, clientRoundId)];
+  if (organizationId) statements.push(platformEventStatement(env.DB, { eventId: `platform-${roundId}-started`, eventName: 'golf.round_score_saved', organizationId, courseId, aggregateType: 'round', aggregateId: roundId, occurredAt: now, payload: { action: 'started', format, personId } }));
+  await env.DB.batch(statements);
+  return json({ round: { id: roundId, status: 'in_progress', courseId, format, scores: [], clientRoundId } }, 201);
+}
+
+async function saveRoundScores(request: Request, env: Env, roundId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env);
+  if (authError) return authError;
+  if (!/^round-[a-zA-Z0-9-]{8,100}$/.test(roundId)) return error('Round id is invalid.', 400, 'INVALID_INPUT');
+  const personId = request.headers.get('x-state-of-stick-person-id');
+  if (!personId || !isValidPersonId(personId)) return error('A verified golfer identity is required.', 400, 'PLAYER_IDENTITY_REQUIRED');
+  const round = await env.DB.prepare('SELECT id, course_id, status, state_of_stick_organization_id FROM golf_rounds WHERE id = ?1 AND state_of_stick_person_id = ?2').bind(roundId, personId).first<{ id: string; course_id: string; status: string; state_of_stick_organization_id: string | null }>();
+  if (!round) return error('Round not found.', 404, 'NOT_FOUND');
+  if (!['open', 'in_progress'].includes(round.status)) return error('Only an open round can accept score changes.', 409, 'ROUND_NOT_EDITABLE');
+  const body = await readJson(request);
+  if (body instanceof Response) return body;
+  if (!Array.isArray(body.scores) || body.scores.length < 1 || body.scores.length > 18) return error('scores must contain between 1 and 18 holes.', 400, 'INVALID_INPUT');
+  const seen = new Set<number>();
+  const scores: Array<{ hole: number; strokes: number; tapVerified: boolean; witnessConfirmed: boolean; proofNote: string | null }> = [];
+  for (const candidate of body.scores) {
+    if (!candidate || typeof candidate !== 'object') return error('Each score must be an object.', 400, 'INVALID_INPUT');
+    const value = candidate as Record<string, unknown>;
+    const hole = Number(value.hole); const strokes = Number(value.strokes);
+    if (!Number.isInteger(hole) || hole < 1 || hole > 18 || seen.has(hole) || !isValidScore(strokes)) return error('Each hole must be unique and have strokes between 0 and 12.', 400, 'INVALID_INPUT');
+    seen.add(hole);
+    scores.push({ hole, strokes, tapVerified: value.tapVerified === true, witnessConfirmed: value.witnessConfirmed === true, proofNote: typeof value.proofNote === 'string' ? value.proofNote.slice(0, 500) : null });
+  }
+  const now = new Date().toISOString();
+  const clientEventId = typeof body.clientEventId === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,120}$/.test(body.clientEventId) ? body.clientEventId : crypto.randomUUID();
+  const statements: D1PreparedStatement[] = scores.map((score) => env.DB.prepare(`INSERT INTO golf_hole_scores (round_id, hole_number, strokes, tap_verified, witness_confirmed, proof_note, created_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+    ON CONFLICT(round_id, hole_number) DO UPDATE SET strokes = excluded.strokes, tap_verified = excluded.tap_verified, witness_confirmed = excluded.witness_confirmed, proof_note = excluded.proof_note`).bind(roundId, score.hole, score.strokes, score.tapVerified ? 1 : 0, score.witnessConfirmed ? 1 : 0, score.proofNote, now));
+  statements.push(env.DB.prepare('UPDATE golf_rounds SET updated_at = ?1 WHERE id = ?2').bind(now, roundId));
+  if (round.state_of_stick_organization_id) statements.push(platformEventStatement(env.DB, { eventId: `platform-${roundId}-score-${clientEventId}`, eventName: 'golf.round_score_saved', organizationId: round.state_of_stick_organization_id, courseId: round.course_id, aggregateType: 'round', aggregateId: roundId, occurredAt: now, payload: { personId, scoreCount: scores.length, clientEventId } }));
+  await env.DB.batch(statements);
+  const saved = await env.DB.prepare('SELECT hole_number, strokes, tap_verified, witness_confirmed, proof_note FROM golf_hole_scores WHERE round_id = ?1 ORDER BY hole_number').bind(roundId).all();
+  return json({ round: { id: roundId, status: round.status, scores: saved.results }, acknowledgedClientEventId: clientEventId });
+}
+
 async function enrollInLeague(request: Request, env: Env, leagueId: string): Promise<Response> {
   const authError = requireWriteAccess(request, env);
   if (authError) return authError;
@@ -1299,10 +1362,17 @@ async function getPublicCourseProfile(env: Env, slug: string): Promise<Response>
   return json({ profile: { ...course, holes: holes.results, teeSets: tees.results, announcements: announcements.results, services: services.results, leagues: leagues.results, sourceBoundary: 'Only operator-approved published records are included.' } }, 200, { 'cache-control': 'public, max-age=60, s-maxage=300' });
 }
 
-async function getRound(env: Env, id: string): Promise<Response> {
+async function getRound(request: Request, env: Env, id: string): Promise<Response> {
   if (!/^round-[a-zA-Z0-9-]{8,100}$/.test(id)) return error('Round id is invalid.', 400, 'INVALID_INPUT');
-  const round = await env.DB.prepare('SELECT * FROM golf_rounds WHERE id = ?1').bind(id).first();
+  const authError = requireWriteAccess(request, env);
+  if (authError) return authError;
+  const personId = request.headers.get('x-state-of-stick-person-id');
+  const identity = verifiedIdentityFor(request);
+  const round = await env.DB.prepare('SELECT * FROM golf_rounds WHERE id = ?1').bind(id).first<Record<string, unknown>>();
   if (!round) return error('Round not found.', 404, 'NOT_FOUND');
+  const isOwner = Boolean(personId && round.state_of_stick_person_id === personId);
+  const isOperator = Boolean(identity?.organizationId && round.state_of_stick_organization_id === identity.organizationId && hasRole(identity, 'operator', 'operator_admin', 'organization_admin', 'owner', 'staff'));
+  if (!isOwner && !isOperator) return error('Round data is only available to the golfer or course operator.', 403, 'FORBIDDEN');
   const scores = await env.DB.prepare('SELECT * FROM golf_hole_scores WHERE round_id = ?1 ORDER BY hole_number').bind(id).all();
   const verificationEvents = await env.DB.prepare('SELECT * FROM golf_round_verification_events WHERE round_id = ?1 ORDER BY created_at').bind(id).all();
   const auditEvents = await env.DB.prepare('SELECT * FROM golf_round_audit_events WHERE round_id = ?1 ORDER BY created_at').bind(id).all();
@@ -1484,10 +1554,14 @@ export default {
       else response = await getLeague(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/leagues\/[^/]+\/enroll$/) && request.method === 'POST') {
       response = await enrollInLeague(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname === '/api/v1/rounds/start' && request.method === 'POST') {
+      response = await startRound(request, env);
+    } else if (url.pathname.match(/^\/api\/v1\/rounds\/[^/]+\/scores$/) && request.method === 'POST') {
+      response = await saveRoundScores(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname === '/api/v1/rounds' && request.method === 'POST') {
       response = await createRound(request, env);
     } else if (url.pathname.startsWith('/api/v1/rounds/') && request.method === 'GET') {
-      response = await getRound(env, url.pathname.split('/')[4] ?? '');
+      response = await getRound(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/rounds\/[^/]+\/verification$/) && request.method === 'POST') {
       response = await addVerificationEvent(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.startsWith('/api/v1/live/rounds/') && request.method === 'GET') {
