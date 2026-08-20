@@ -1,6 +1,7 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "sticklink-golf-api",
+  "account_id": "b5637d5dde6767918742749ec1d7bf60",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-19",
   "compatibility_flags": ["nodejs_compat"],
@@ -12,6 +13,7 @@
     {
       "binding": "DB",
       "database_name": "sticklink-golf",
+      "database_id": "71a568c2-6bae-4dce-9dc6-f300a8d0d137",
       "migrations_dir": "../migrations"
     }
   ],
@@ -32,5 +34,43 @@
   "vars": {
     "ENVIRONMENT": "development",
     "PUBLIC_ORIGIN": "http://localhost:4321"
+  },
+  "env": {
+    "production": {
+      "name": "sticklink-golf-api-production",
+      "account_id": "b5637d5dde6767918742749ec1d7bf60",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "sticklink-golf",
+          "database_id": "71a568c2-6bae-4dce-9dc6-f300a8d0d137",
+          "migrations_dir": "../migrations"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "ROUND_SESSIONS",
+            "class_name": "RoundSession"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["RoundSession"]
+        }
+      ],
+      "vars": {
+        "ENVIRONMENT": "production",
+        "PUBLIC_ORIGIN": "https://golf.stateofstick.co"
+      },
+      "routes": [
+        {
+          "pattern": "api.golf.stateofstick.co/*",
+          "zone_name": "stateofstick.co"
+        }
+      ]
+    }
   }
 }

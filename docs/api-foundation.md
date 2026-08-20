@@ -38,12 +38,23 @@ with a verified State of Stick identity and organization-membership check.
 
 ## Production boundary
 
-Do not run a remote migration or deploy the Worker until the production D1
-database, Worker environment, secrets, and API hostname have been reviewed.
-The current Wrangler file intentionally has no production database ID, so it
-cannot accidentally write to a remote database.
+The production D1 database and Worker binding are provisioned in the
+Techflunky Cloudflare account. Migration `0001_golf_foundation.sql` has been
+applied to database `sticklink-golf`, and the production Worker
+`sticklink-golf-api-production` is deployed with `GOLF_WRITE_TOKEN` stored as
+a Cloudflare secret.
 
 The intended production shape is:
+
+- Worker: `sticklink-golf-api-production`
+- API hostname: `api.golf.stateofstick.co`
+- D1 database: `sticklink-golf`
+- Frontend origin: `https://golf.stateofstick.co`
+
+The Worker route is configured in Wrangler. The DNS zone still needs a
+proxied `api.golf` record before the custom API hostname can resolve. Add that
+record in Cloudflare DNS, then verify `/health`, `/api/v1/courses`, and the
+live-round endpoint through the custom hostname.
 
 ```text
 golf.stateofstick.co              Pages frontend
