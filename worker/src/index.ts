@@ -222,7 +222,7 @@ function factFrom(sourceRef: string, label: string, value: string, verified = tr
 async function getLeagueIntelligence(request: Request, env: Env, leagueId: string): Promise<Response> {
   const league = await env.DB.prepare('SELECT id, visibility FROM golf_leagues WHERE id = ?1').bind(leagueId).first<{ id: string; visibility: string }>();
   if (!league) return error('League not found.', 404, 'NOT_FOUND');
-  const personId = request.headers.get('x-state-of-stick-person-id') ?? undefined;
+  const personId = verifiedIdentityFor(request)?.personId;
   const privateAccessError = await requirePrivateLeagueAccess(request, env, leagueId, league.visibility);
   if (privateAccessError) return privateAccessError;
   const standings = await env.DB.prepare(`SELECT golfer_id, display_name, rounds, courses_played, points, trust_level, trend FROM golf_league_standings WHERE league_id = ?1 ORDER BY points DESC, display_name`).bind(leagueId).all();
@@ -610,7 +610,6 @@ async function getLeague(request: Request, env: Env, id: string): Promise<Respon
   const league = await env.DB.prepare(`SELECT id, name, season, status, format, region, sponsor, visibility, cadence, start_date, end_date, published_at, created_at
     FROM golf_leagues WHERE id = ?1`).bind(id).first<{ visibility?: string }>();
   if (!league) return error('League not found.', 404, 'NOT_FOUND');
-  const personId = request.headers.get('x-state-of-stick-person-id');
   const privateAccessError = await requirePrivateLeagueAccess(request, env, id, league.visibility);
   if (privateAccessError) return privateAccessError;
   const { page, pageSize, offset } = pageWindow(Number(new URL(request.url).searchParams.get('page')), Number(new URL(request.url).searchParams.get('pageSize')));
@@ -637,7 +636,7 @@ async function getPassport(request: Request, env: Env, personId: string): Promis
   const holes = await env.DB.prepare('SELECT COUNT(*) AS count FROM golf_hole_scores s JOIN golf_rounds r ON r.id = s.round_id WHERE r.state_of_stick_person_id = ?1 AND s.strokes > 0').bind(personId).first();
   const memberships = await env.DB.prepare(`SELECT l.id, l.name, l.season FROM golf_league_enrollments e JOIN golf_leagues l ON l.id = e.league_id WHERE e.person_id = ?1 AND e.status = 'active' ORDER BY l.start_date DESC, l.name`).bind(personId).all();
   const personalBests = rounds.results.filter((round) => round.status === 'verified' && round.strokes !== null).sort((a, b) => Number(a.strokes) - Number(b.strokes)).slice(0, 5);
-  return json({ profile: profile ?? { id: personId, rounds: 0 }, passport: { roundsPlayed: Number(profile?.rounds ?? 0), coursesPlayed: Number(courses?.count ?? 0), holesCompleted: Number(holes?.count ?? 0), verifiedRounds: Number(verified?.count ?? 0), personalBests, currentStreak: Math.min(personalBests.length, 3), leagueMemberships: memberships.results }, activity: rounds.results, shareUrl: `/passport/${personId}/` }, 200, { 'cache-control': 'private, no-store' });
+  return json({ profile: profile ?? { id: personId, rounds: 0 }, passport: { roundsPlayed: Number(profile?.rounds ?? 0), coursesPlayed: Number(courses?.count ?? 0), holesCompleted: Number(holes?.count ?? 0), verifiedRounds: Number(verified?.count ?? 0), personalBests, currentStreak: Math.min(personalBests.length, 3), leagueMemberships: memberships.results }, activity: rounds.results, shareUrl: null, sourceBoundary: 'Private passport projection; a future public profile requires a separate explicit opt-in projection.' }, 200, { 'cache-control': 'private, no-store' });
 }
 
 async function discoverCourses(env: Env, request: Request): Promise<Response> {
