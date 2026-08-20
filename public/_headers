@@ -1,0 +1,17 @@
+/*
+  These headers are emitted by Cloudflare Pages for the production site and
+  Pages preview deployments. Keep the API origin explicit so browser clients
+  can call the separate Worker without broadening connect-src to arbitrary
+  hosts.
+*/
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), geolocation=(), microphone=(), payment=(), usb=()
+  Content-Security-Policy: default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self' https://golf-api.stateofstick.co; font-src 'self'; manifest-src 'self'; worker-src 'self'
+
+/*
+  HSTS is safe for the canonical HTTPS site and its subdomains. Do not enable
+  preload or includeSubDomains until every State of Stick subdomain is known
+  to be HTTPS-only.
+*/
+  Strict-Transport-Security: max-age=15552000
