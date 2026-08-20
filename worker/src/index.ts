@@ -193,6 +193,17 @@ async function requirePlayerAccess(request: Request, env: Env, personId: string)
   return null;
 }
 
+async function requirePrivateLeagueAccess(request: Request, env: Env, leagueId: string, visibility: string | undefined): Promise<Response | null> {
+  if (visibility !== 'private') return null;
+  const authError = requireWriteAccess(request, env);
+  if (authError) return authError;
+  const personId = request.headers.get('x-state-of-stick-person-id');
+  if (!personId || !isValidPersonId(personId)) return error('Private league access requires a golfer identity.', 401, 'UNAUTHORIZED');
+  const member = await env.DB.prepare("SELECT 1 FROM golf_league_enrollments WHERE league_id = ?1 AND person_id = ?2 AND status = 'active'").bind(leagueId, personId).first();
+  if (!member) return error('This league is private.', 403, 'FORBIDDEN');
+  return null;
+}
+
 async function getPlayerIntelligence(request: Request, env: Env, personId: string): Promise<Response> {
   const accessError = await requirePlayerAccess(request, env, personId); if (accessError) return accessError;
   const roundsResult = await env.DB.prepare(`SELECT r.id, r.course_id, r.format, r.status, r.created_at, s.hole_number, s.strokes, s.tap_verified, s.witness_confirmed
@@ -212,7 +223,8 @@ async function getLeagueIntelligence(request: Request, env: Env, leagueId: strin
   const league = await env.DB.prepare('SELECT id, visibility FROM golf_leagues WHERE id = ?1').bind(leagueId).first<{ id: string; visibility: string }>();
   if (!league) return error('League not found.', 404, 'NOT_FOUND');
   const personId = request.headers.get('x-state-of-stick-person-id') ?? undefined;
-  if (league.visibility === 'private') { if (!personId || !isValidPersonId(personId)) return error('Private league access requires a golfer identity.', 401, 'UNAUTHORIZED'); const member = await env.DB.prepare("SELECT 1 FROM golf_league_enrollments WHERE league_id = ?1 AND person_id = ?2 AND status = 'active'").bind(leagueId, personId).first(); if (!member) return error('This league is private.', 403, 'FORBIDDEN'); }
+  const privateAccessError = await requirePrivateLeagueAccess(request, env, leagueId, league.visibility);
+  if (privateAccessError) return privateAccessError;
   const standings = await env.DB.prepare(`SELECT golfer_id, display_name, rounds, courses_played, points, trust_level, trend FROM golf_league_standings WHERE league_id = ?1 ORDER BY points DESC, display_name`).bind(leagueId).all();
   const viewerId = personId ?? ''; const insight = deterministicIntelligence.leagueStandings(standings.results.map((row) => ({ golferId: String(row.golfer_id), name: String(row.display_name), rounds: Number(row.rounds), coursesPlayed: Number(row.courses_played), points: Number(row.points), trust: String(row.trust_level) as any, trend: String(row.trend) as any })), viewerId);
   const insightId = await persistInsight(env, insight, { personId, leagueId });
@@ -597,11 +609,8 @@ async function getLeague(request: Request, env: Env, id: string): Promise<Respon
   const league = await env.DB.prepare('SELECT * FROM golf_leagues WHERE id = ?1').bind(id).first<{ visibility?: string }>();
   if (!league) return error('League not found.', 404, 'NOT_FOUND');
   const personId = request.headers.get('x-state-of-stick-person-id');
-  if (league.visibility === 'private') {
-    if (!personId || !isValidPersonId(personId)) return error('Private league access requires a golfer identity.', 401, 'UNAUTHORIZED');
-    const member = await env.DB.prepare("SELECT 1 FROM golf_league_enrollments WHERE league_id = ?1 AND person_id = ?2 AND status = 'active'").bind(id, personId).first();
-    if (!member) return error('This league is private.', 403, 'FORBIDDEN');
-  }
+  const privateAccessError = await requirePrivateLeagueAccess(request, env, id, league.visibility);
+  if (privateAccessError) return privateAccessError;
   const { page, pageSize, offset } = pageWindow(Number(new URL(request.url).searchParams.get('page')), Number(new URL(request.url).searchParams.get('pageSize')));
   const total = await env.DB.prepare('SELECT COUNT(*) AS count FROM golf_league_standings WHERE league_id = ?1').bind(id).first<{ count: number }>();
 
@@ -1207,12 +1216,8 @@ async function getLiveLeague(request: Request, env: Env, leagueId: string): Prom
   if (!isValidId(leagueId)) return error('League id is invalid.', 400, 'INVALID_INPUT');
   const league = await env.DB.prepare('SELECT visibility FROM golf_leagues WHERE id = ?1').bind(leagueId).first<{ visibility: string }>();
   if (!league) return error('League not found.', 404, 'NOT_FOUND');
-  if (league.visibility === 'private') {
-    const personId = request.headers.get('x-state-of-stick-person-id');
-    if (!personId || !isValidPersonId(personId)) return error('Private league access requires a golfer identity.', 401, 'UNAUTHORIZED');
-    const member = await env.DB.prepare("SELECT 1 FROM golf_league_enrollments WHERE league_id = ?1 AND person_id = ?2 AND status = 'active'").bind(leagueId, personId).first();
-    if (!member) return error('This league is private.', 403, 'FORBIDDEN');
-  }
+  const privateAccessError = await requirePrivateLeagueAccess(request, env, leagueId, league.visibility);
+  if (privateAccessError) return privateAccessError;
   const standings = await env.DB.prepare(`SELECT golfer_id, display_name, rounds, courses_played, points, trust_level, trend FROM golf_league_standings WHERE league_id = ?1 ORDER BY points DESC, display_name LIMIT 100`).bind(leagueId).all();
   let events: unknown[] = [];
   try { events = ((await env.ROUND_SESSIONS.getByName(`league-${leagueId}`).snapshot()) as { events: unknown[] }).events; } catch { /* D1 remains authoritative when the live coordinator is cold or unavailable. */ }
@@ -1243,10 +1248,8 @@ async function createLeagueMatch(request: Request, env: Env, leagueId: string): 
 async function getLeagueMatches(request: Request, env: Env, leagueId: string): Promise<Response> {
   if (!isValidId(leagueId)) return error('League id is invalid.', 400, 'INVALID_INPUT');
   const league = await env.DB.prepare('SELECT id, visibility FROM golf_leagues WHERE id = ?1').bind(leagueId).first<{ id: string; visibility: string }>(); if (!league) return error('League not found.', 404, 'NOT_FOUND');
-  if (league.visibility === 'private') {
-    const personId = request.headers.get('x-state-of-stick-person-id'); if (!personId || !isValidPersonId(personId)) return error('Private league access requires a golfer identity.', 401, 'UNAUTHORIZED');
-    const member = await env.DB.prepare("SELECT 1 FROM golf_league_enrollments WHERE league_id = ?1 AND person_id = ?2 AND status = 'active'").bind(leagueId, personId).first(); if (!member) return error('This league is private.', 403, 'FORBIDDEN');
-  }
+  const privateAccessError = await requirePrivateLeagueAccess(request, env, leagueId, league.visibility);
+  if (privateAccessError) return privateAccessError;
   const matches = await env.DB.prepare(`SELECT m.id, m.league_id, m.player_a_id, m.player_b_id, m.format, m.status, m.scheduled_for, m.result_json, m.created_at, m.updated_at,
     (SELECT COUNT(*) FROM golf_league_match_entries e WHERE e.match_id = m.id) AS submitted_entries
     FROM golf_league_matches m WHERE m.league_id = ?1 ORDER BY m.scheduled_for, m.created_at DESC LIMIT 100`).bind(leagueId).all();
@@ -1610,8 +1613,22 @@ export default {
       response = await addVerificationEvent(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.startsWith('/api/v1/live/rounds/') && request.method === 'GET') {
       const roundId = url.pathname.split('/')[5] ?? '';
-      const snapshot = await env.ROUND_SESSIONS.getByName(roundId).snapshot() as { events: unknown[] };
-      response = json({ roundId, ...snapshot });
+      const authError = requireWriteAccess(request, env);
+      if (authError) response = authError;
+      else if (!/^round-[a-zA-Z0-9-]{8,100}$/.test(roundId)) response = error('Round id is invalid.', 400, 'INVALID_INPUT');
+      else {
+        const round = await env.DB.prepare('SELECT state_of_stick_person_id, state_of_stick_organization_id FROM golf_rounds WHERE id = ?1').bind(roundId).first<{ state_of_stick_person_id: string; state_of_stick_organization_id: string | null }>();
+        const personId = request.headers.get('x-state-of-stick-person-id');
+        const identity = verifiedIdentityFor(request);
+        const isOwner = Boolean(personId && round?.state_of_stick_person_id === personId);
+        const isOperator = Boolean(identity?.organizationId && round?.state_of_stick_organization_id === identity.organizationId && hasRole(identity, 'operator', 'operator_admin', 'organization_admin', 'owner', 'staff'));
+        if (!round) response = error('Round not found.', 404, 'NOT_FOUND');
+        else if (!isOwner && !isOperator) response = error('Live round data is only available to the golfer or course operator.', 403, 'FORBIDDEN');
+        else {
+          const snapshot = await env.ROUND_SESSIONS.getByName(roundId).snapshot() as { events: unknown[] };
+          response = json({ roundId, ...snapshot }, 200, { 'cache-control': 'private, no-store' });
+        }
+      }
     } else {
       response = error('Not found.', 404, 'NOT_FOUND');
     }
