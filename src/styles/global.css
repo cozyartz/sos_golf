@@ -44,6 +44,67 @@ nav { display:flex; gap:28px; font-size:13px; color:#667067; } nav a:hover { col
 @media (max-width:760px) { .tap-story { display:block; padding-top:52px; padding-bottom:52px; }.tap-story-art { min-height:390px; margin-bottom:32px; }.tap-story-art img { min-height:390px; }.tap-story-copy h2 { font-size:48px; }.tap-story-copy p { font-size:15px; }.tap-story-points { justify-content:space-between; gap:8px; font-size:9px; } }
 @media (max-width:760px) { .pitch-grid { grid-template-columns:1fr; }.pitch-hero { padding-top:35px; }.pitch-hero h1 { font-size:58px; }.pitch-cta { padding-top:40px; } }
 
+/* State of Stick parent-brand system: dark studio canvas, product orange, and system cyan. */
+:root {
+  --ink:#f0f1ed;
+  --muted:#9ba5a6;
+  --paper:#090c0d;
+  --card:#13191b;
+  --line:#303b3e;
+  --green:#1e473b;
+  --lime:#b9ed78;
+  --orange:#e85d2f;
+  --shadow:0 22px 70px rgba(0,0,0,.28);
+  --display:'Arial Narrow','Roboto Condensed',Impact,sans-serif;
+}
+body { background:var(--paper); color:var(--ink); }
+.shell { max-width:1224px; }
+.site-utility { display:flex; justify-content:space-between; gap:24px; min-height:30px; align-items:center; color:#9ca4a6; font:9px 'DM Mono',monospace; letter-spacing:.17em; text-transform:uppercase; }
+.site-header { height:80px; border-bottom-color:var(--line); background:var(--paper); }
+.site-header nav { color:#aeb5b8; text-transform:uppercase; letter-spacing:.11em; font:10px 'DM Mono',monospace; }
+.site-header nav a:hover, .more-nav summary:hover { color:#fff; }
+.wordmark span { color:#f0f1ed; }
+.wordmark i { color:var(--orange); }
+.profile-chip { border-color:var(--line); background:#13191b; color:var(--ink); }
+.avatar { background:var(--orange); color:#fff; }
+.chevron { color:var(--cyan-brand); }
+.page-eyebrow { color:var(--cyan-brand); }
+.hero { min-height:570px; padding-top:74px; padding-bottom:84px; }
+.hero h1, .page h1, .section h2, .tap-story-copy h2, .course-hero h1, .event-hero h1, .league-hero h1, .intelligence-hero h1 { font-family:var(--display); font-weight:700; text-transform:uppercase; }
+.hero h1 { max-width:610px; font-size:clamp(54px,7vw,98px); line-height:.9; letter-spacing:-.035em; color:#f0f1ed; }
+.hero h1 em { color:var(--orange); }
+.hero p, .section-intro, .tap-story-copy p, .page-lead { color:#aab2b3; }
+.eyebrow { color:var(--orange); }
+.button { border-radius:2px; background:var(--orange); border-color:var(--orange); color:#fff; text-transform:uppercase; letter-spacing:.08em; font:700 10px 'DM Mono',monospace; }
+.button:hover { background:#f06c3c; border-color:#f06c3c; }
+.button.secondary { color:#e4e8e4; border-color:#526064; background:transparent; }
+.button.secondary:hover { background:#182123; border-color:#8a999b; }
+.round-card { border:1px solid #415153; border-radius:2px; background:#152c28; }
+.round-card .hole { background:#10211f; border-radius:0; }
+.stripe { background:#152c28; border-top:1px solid #36554e; border-bottom:1px solid #36554e; color:#d9e5d4; }
+.stripe strong, .tap-story-points, .tap-story-stamp { color:var(--cyan-brand); }
+.tap-story-art { border-radius:2px; border:1px solid #3b494b; }
+.tap-story-copy h2 em { color:var(--orange); }
+.feature, .panel, .round-identity, .event-token, .network-card, .discovery-card, .course-score-card, .operator-tools article, .course-network-card { background:var(--card); border-color:var(--line); border-radius:2px; }
+.feature h3, .panel h2, .section h2, .tap-story-copy h2, .page h1 { color:var(--ink); }
+.feature .number, .course-network-card > span, .operator-tools span { color:var(--cyan-brand); }
+.feature p, .panel-copy, .course-network-card p, .operator-tools p { color:#9ba5a6; }
+.site-footer { border-top:1px solid var(--line); color:#899496; }
+.more-nav-menu, .mobile-menu nav { background:#13191b; border-color:var(--line); }
+.more-nav-menu a:hover, .mobile-menu nav a:hover { background:#1c292b; }
+.more-nav summary { color:#aeb5b8; }
+.site-utility + .site-header-pitch { margin-top:0; }
+.is-pitch .site-utility { background:var(--ink-brand); max-width:none; padding-left:max(28px,calc((100% - 1224px) / 2)); padding-right:max(28px,calc((100% - 1224px) / 2)); }
+
+@media (max-width:760px) {
+  .site-utility { min-height:26px; padding-left:18px; padding-right:18px; font-size:7px; letter-spacing:.1em; }
+  .site-utility span:last-child { display:none; }
+  .site-header { height:74px; }
+  .hero { min-height:auto; padding-top:48px; padding-bottom:62px; }
+  .hero h1 { font-size:clamp(52px,15vw,72px); }
+  .round-card { margin-top:30px; }
+}
+
 /* Shared shell polish: keep the navigation useful at every viewport. */
 html { scroll-behavior:smooth; }
 body { -webkit-font-smoothing:antialiased; }

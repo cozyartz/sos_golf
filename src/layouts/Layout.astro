@@ -45,7 +45,8 @@ const isPitch = Astro.url.pathname === '/pitch' || Astro.url.pathname === '/pitc
     {structuredData && <script is:inline type="application/ld+json" set:html={JSON.stringify(structuredData)} />}
     <title>{title}</title>
   </head>
-  <body>
+  <body class:list={{ 'is-pitch': isPitch }}>
+    <div class="site-utility shell"><span>⚡ WEATHERPROOF COMPOSITE. BUILT TO LAST.</span><span>STATE OF STICK GOLF · BUILT IN BATTLE CREEK, MI ⚡</span></div>
     <header class:list={["site-header", "shell", { "site-header-pitch": isPitch }]}>
       <a class="wordmark" href="/" aria-label="State of Stick Golf home"><img src="/brand/golf/sosgolf-logo.png" alt="" /><span>STATE OF STICK <i>/ GOLF</i></span></a>
       {isPitch ? <nav class="pitch-nav" aria-label="Pitch navigation">
