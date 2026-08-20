@@ -29,6 +29,17 @@ State of Stick identity adapter before broad access is enabled.
 The activation page is intentionally `noindex` because its token is a private
 handoff from a course's booking flow, not a public course landing page.
 
+## Browser identity handoff
+
+The standalone activation page does not collect or invent golfer credentials.
+When it is embedded or opened inside a State of Stick-authenticated shell, the
+shell can provide a short-lived verified session through
+`window.__STATE_OF_STICK_SESSION__` or dispatch a `stateofstick:identity`
+event. The payload must include `identityAssertion` and `personId`. Golf sends
+that assertion to the claim and start-round endpoints; it never accepts a
+browser-supplied plan, role, or organization as proof. Without the handoff,
+the claim and start controls remain disabled.
+
 ## Claim and start
 
 After resolving an activation URL, an authenticated golfer can claim one player

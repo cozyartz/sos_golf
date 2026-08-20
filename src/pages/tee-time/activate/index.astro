@@ -52,6 +52,16 @@ import Layout from '../../../layouts/Layout.astro';
           <a class="button" href="/membership/">Explore golfer membership <span>↗</span></a>
           <a class="button secondary" href="/round/cedar-ridge/">See the demo round <span>↗</span></a>
         </div>
+        <div class="tee-time-identity-actions">
+          <div>
+            <span class="tee-time-label">STATE OF STICK IDENTITY</span>
+            <strong id="identity-connection-status">Waiting for account connection</strong>
+          </div>
+          <div class="tee-time-identity-buttons">
+            <button class="button" id="claim-slot" type="button" disabled>Claim my place</button>
+            <button class="button secondary" id="start-round" type="button" disabled>Start my round</button>
+          </div>
+        </div>
         <p class="tee-time-approval-note"><span aria-hidden="true">●</span> Account claiming and round start require a verified State of Stick identity. Human and operator approval remain in control of consequential actions.</p>
       </div>
 
@@ -95,6 +105,7 @@ import Layout from '../../../layouts/Layout.astro';
         })
         .then((payload) => {
           const activation = payload.activation || payload;
+          window.__golfActivation = activation;
           setText('#activation-course', activation.course?.name || 'Course experience');
           setText('#activation-region', activation.course?.region || 'Course-approved details');
           setText('#activation-start', formatStart(activation.startsAt));
@@ -103,8 +114,59 @@ import Layout from '../../../layouts/Layout.astro';
           setText('#activation-status-badge', titleCase(activation.status || 'ready'));
           status.textContent = 'Tee time found · ready for review';
           card.hidden = false;
+          window.dispatchEvent(new CustomEvent('golf:activation-ready'));
         })
         .catch((requestError) => showError(requestError.message));
     }
+
+    const identityStatus = document.querySelector('#identity-connection-status');
+    const claimButton = document.querySelector('#claim-slot');
+    const startButton = document.querySelector('#start-round');
+    let platformSession = null;
+    let claimed = false;
+    let roundId = null;
+    const sessionFromShell = (candidate) => candidate && typeof candidate.identityAssertion === 'string' && typeof candidate.personId === 'string' ? candidate : null;
+    const updateIdentityControls = () => {
+      const connected = Boolean(platformSession);
+      if (identityStatus) identityStatus.textContent = connected ? 'Verified session connected' : 'Waiting for account connection';
+      if (claimButton) claimButton.disabled = !connected || !window.__golfActivation || claimed;
+      if (startButton) startButton.disabled = !connected || !claimed || Boolean(roundId);
+    };
+    const receiveIdentity = (event) => { platformSession = sessionFromShell(event.detail); updateIdentityControls(); };
+    window.addEventListener('stateofstick:identity', receiveIdentity);
+    platformSession = sessionFromShell(window.__STATE_OF_STICK_SESSION__);
+    window.addEventListener('golf:activation-ready', updateIdentityControls);
+    const secureHeaders = () => ({ 'content-type': 'application/json', 'x-state-of-stick-identity-assertion': platformSession.identityAssertion, 'x-state-of-stick-person-id': platformSession.personId });
+    claimButton?.addEventListener('click', async () => {
+      if (!platformSession || !window.__golfActivation) return;
+      claimButton.disabled = true;
+      try {
+        const response = await fetch(`${apiOrigin}/api/v1/tee-time-activations/${encodeURIComponent(token)}/claim`, { method: 'POST', headers: secureHeaders(), body: JSON.stringify({ playerIndex: 1 }) });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error?.message || 'The player slot could not be claimed.');
+        claimed = true;
+        if (identityStatus) identityStatus.textContent = 'Place claimed · round can begin';
+        updateIdentityControls();
+      } catch (claimError) {
+        if (identityStatus) identityStatus.textContent = claimError.message;
+        updateIdentityControls();
+      }
+    });
+    startButton?.addEventListener('click', async () => {
+      if (!platformSession || !window.__golfActivation || !claimed) return;
+      startButton.disabled = true;
+      try {
+        const response = await fetch(`${apiOrigin}/api/v1/tee-time-activations/${encodeURIComponent(token)}/start-round`, { method: 'POST', headers: secureHeaders(), body: JSON.stringify({ playerIndex: 1, format: 'stroke_play' }) });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error?.message || 'The round could not be started.');
+        roundId = payload.round?.id || null;
+        if (identityStatus) identityStatus.textContent = roundId ? `Round started · ${roundId}` : 'Round started';
+        updateIdentityControls();
+      } catch (startError) {
+        if (identityStatus) identityStatus.textContent = startError.message;
+        updateIdentityControls();
+      }
+    });
+    updateIdentityControls();
   </script>
 </Layout>
