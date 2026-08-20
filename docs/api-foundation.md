@@ -54,6 +54,9 @@ The API currently exposes:
 - `GET /api/v1/leagues/:leagueId/intelligence`
 - `GET /api/v1/courses/:courseId/intelligence`
 - `GET /api/v1/courses/:courseId/operator-metrics`
+- `POST /api/v1/course-claims`
+- `GET /api/v1/course-claims`
+- `POST /api/v1/course-claims/:claimId/review`
 - `POST /api/v1/assistant`
 - `POST /api/v1/intelligence/:insightId/feedback`
 - `GET /api/v1/courses/:courseId/knowledge`

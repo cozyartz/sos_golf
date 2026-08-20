@@ -188,6 +188,53 @@ async function getOperatorMetrics(request: Request, env: Env, courseId: string):
   return json({ courseId, window: { since, until: new Date().toISOString() }, metrics: { tapEvents: Number(taps?.count ?? 0), uniqueGolfers: Number(uniqueGolfers?.count ?? 0), activeRounds: Number(activeRounds?.count ?? 0), serviceRequests: Number(requests?.count ?? 0), completedServiceRequests: Number(requests?.completed ?? 0), recordedCompletedServiceValueCents: Number(serviceValue?.cents ?? 0), golfAgentQuestions: Number(questions?.count ?? 0), unansweredGolfAgentQuestions: Number(questions?.unanswered ?? 0), busiestTap: busiestTap ? { label: busiestTap.label, locationType: busiestTap.location_type, taps: Number(busiestTap.taps) } : null }, sourceBoundary: 'Counts are derived from recorded D1 activity. Recorded service value is not settled revenue and does not imply payment or POS integration.' }, 200, { 'cache-control': 'private, no-store' });
 }
 
+async function createCourseClaim(request: Request, env: Env): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); const actorId = request.headers.get('x-state-of-stick-person-id');
+  if (!organizationId || !actorId || !isValidPersonId(actorId)) return error('Organization and actor identity are required.', 400, 'INVALID_INPUT');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  const requestedName = typeof body.requestedName === 'string' ? body.requestedName.trim() : '';
+  const region = typeof body.region === 'string' ? body.region.trim() : '';
+  const courseId = body.courseId === undefined || body.courseId === null || body.courseId === '' ? null : body.courseId;
+  if (requestedName.length < 2 || requestedName.length > 160 || region.length < 2 || region.length > 120) return error('requestedName and region are required.', 400, 'INVALID_INPUT');
+  if (courseId !== null && (typeof courseId !== 'string' || !isValidId(courseId))) return error('courseId is invalid.', 400, 'INVALID_INPUT');
+  if (courseId) {
+    const course = await env.DB.prepare('SELECT id FROM golf_courses WHERE id = ?1').bind(courseId).first();
+    if (!course) return error('The selected course was not found in the network.', 404, 'NOT_FOUND');
+  }
+  const workflows = Array.isArray(body.requestedWorkflows) ? body.requestedWorkflows.filter((value): value is string => typeof value === 'string' && value.length <= 80).slice(0, 12) : [];
+  const id = `claim-${crypto.randomUUID()}`; const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO golf_course_claim_requests (id, course_id, requested_name, region, requested_by_person_id, organization_id, requested_workflows_json, status, created_at, updated_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, ?8)`).bind(id, courseId, requestedName, region, actorId, organizationId, JSON.stringify(workflows), now).run();
+  return json({ claim: { id, courseId, requestedName, region, requestedWorkflows: workflows, status: 'pending', publishing: 'requires_explicit_operator_review' } }, 201);
+}
+
+async function getCourseClaims(request: Request, env: Env): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); if (!organizationId) return error('Organization identity is required.', 400, 'INVALID_INPUT');
+  const claims = await env.DB.prepare(`SELECT id, course_id, requested_name, region, requested_by_person_id, requested_workflows_json, status, reviewed_by_person_id, reviewed_at, review_note, created_at, updated_at
+    FROM golf_course_claim_requests WHERE organization_id = ?1 ORDER BY created_at DESC LIMIT 100`).bind(organizationId).all();
+  return json({ claims: claims.results.map((claim) => ({ ...claim, requestedWorkflows: JSON.parse(String(claim.requested_workflows_json ?? '[]')) })) }, 200, { 'cache-control': 'private, no-store' });
+}
+
+async function reviewCourseClaim(request: Request, env: Env, claimId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); const actorId = request.headers.get('x-state-of-stick-person-id');
+  if (!organizationId || !actorId || !isValidPersonId(actorId)) return error('Organization and actor identity are required.', 400, 'INVALID_INPUT');
+  if (!isValidId(claimId)) return error('Claim id is invalid.', 400, 'INVALID_INPUT');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  if (body.status !== 'approved' && body.status !== 'rejected') return error('Review status must be approved or rejected.', 400, 'INVALID_INPUT');
+  const claim = await env.DB.prepare('SELECT id, course_id, status FROM golf_course_claim_requests WHERE id = ?1 AND organization_id = ?2').bind(claimId, organizationId).first<{ id: string; course_id: string | null; status: string }>();
+  if (!claim) return error('Course claim not found.', 404, 'NOT_FOUND');
+  if (claim.status !== 'pending') return error('This course claim has already been reviewed.', 409, 'CLAIM_REVIEWED');
+  const now = new Date().toISOString(); const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : null;
+  await env.DB.batch([
+    env.DB.prepare('UPDATE golf_course_claim_requests SET status = ?1, reviewed_by_person_id = ?2, reviewed_at = ?3, review_note = ?4, updated_at = ?3 WHERE id = ?5 AND organization_id = ?6').bind(body.status, actorId, now, note, claimId, organizationId),
+    env.DB.prepare(`INSERT INTO golf_operator_audit_events (id, organization_id, course_id, actor_person_id, action, entity_type, entity_id, details_json, created_at) VALUES (?1, ?2, ?3, ?4, 'review', 'course_claim', ?5, ?6, ?7)`).bind(`op-${crypto.randomUUID()}`, organizationId, claim.course_id, actorId, claimId, JSON.stringify({ status: body.status, note }), now),
+  ]);
+  return json({ claim: { id: claimId, status: body.status, reviewedAt: now, publishing: 'separate_explicit_course_publication_step' } });
+}
+
 async function answerAssistant(request: Request, env: Env): Promise<Response> {
   const authError = requireWriteAccess(request, env); if (authError) return authError;
   const personId = request.headers.get('x-state-of-stick-person-id'); if (!personId || !isValidPersonId(personId)) return error('A golfer identity is required.', 400, 'INVALID_INPUT');
@@ -958,6 +1005,12 @@ export default {
       response = await operatorCourseReview(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/operator-metrics$/) && request.method === 'GET') {
       response = await getOperatorMetrics(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname === '/api/v1/course-claims' && request.method === 'POST') {
+      response = await createCourseClaim(request, env);
+    } else if (url.pathname === '/api/v1/course-claims' && request.method === 'GET') {
+      response = await getCourseClaims(request, env);
+    } else if (url.pathname.match(/^\/api\/v1\/course-claims\/[^/]+\/review$/) && request.method === 'POST') {
+      response = await reviewCourseClaim(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/intelligence$/) && request.method === 'GET') {
       response = await getOperatorIntelligence(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname === '/api/v1/courses' && request.method !== 'GET') {

@@ -9,5 +9,6 @@
 - `0007_course_question_signals.sql` — privacy-preserving question categories and answerability signals for operator content improvement.
 - `0008_portable_matches.sql` — cross-course league matches and verified round entries with provisional course-handicap normalization.
 - `0009_match_handicap_provenance.sql` — explicit handicap index and source fields so competition trust is visible and auditable.
+- `0010_course_claim_requests.sql` — free-first course onboarding requests with explicit operator review and no automatic publishing.
 
 Wrangler applies all pending migrations in order. Review the complete pending set before applying against D1. Phase 2 changes are source-only until an operator explicitly approves local or remote migration application.
