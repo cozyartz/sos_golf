@@ -3,6 +3,7 @@ import type { Course, GolfRound, HoleScore, LeagueStanding } from './golf';
 export type IntelligenceConfidence = 'high' | 'medium' | 'low';
 export type IntelligenceVerification = 'verified' | 'advisory';
 export type IntelligenceFact = { sourceRef: string; label: string; value: string; verified: boolean };
+export type CourseQuestionCategory = 'course_guidance' | 'local_rule' | 'service' | 'event_league' | 'conditions' | 'other';
 export type IntelligenceResult = {
   kind: string;
   sourceFacts: IntelligenceFact[];
@@ -22,6 +23,7 @@ export interface GolfIntelligenceService {
   practiceSuggestions(rounds: GolfRound[], course: Course): IntelligenceResult;
   operatorSummary(facts: IntelligenceFact[]): IntelligenceResult;
   answerOwnRounds(question: string, facts: IntelligenceFact[]): IntelligenceResult;
+  answerCourseQuestion(question: string, facts: IntelligenceFact[]): IntelligenceResult;
 }
 
 const RULE_VERSION = 'deterministic-v1';
@@ -33,6 +35,14 @@ const fact = (sourceRef: string, label: string, value: string, verified = true):
 function completed(scores: HoleScore[]): HoleScore[] { return scores.filter((score) => score.strokes > 0); }
 function sanitizeQuestion(question: string): string { return question.replace(/[\u0000-\u001f]/g, ' ').slice(0, 500).trim(); }
 function refusal(question: string): boolean { return /another player|other player|private|medical|diagnos|gambl|payout|wager|live condition|weather now/i.test(question); }
+export function classifyCourseQuestion(question: string): CourseQuestionCategory {
+  if (/rule|local|out of bound|obstruction|drop/i.test(question)) return 'local_rule';
+  if (/food|drink|water|cart|towel|rental|order|clubhouse|turn house|help/i.test(question)) return 'service';
+  if (/event|league|tournament|standings|tee time|registration/i.test(question)) return 'event_league';
+  if (/weather|rain|wind|condition|open|closed|delay/i.test(question)) return 'conditions';
+  if (/hole|tee|green|yard|par|where|direction|course/i.test(question)) return 'course_guidance';
+  return 'other';
+}
 
 export const deterministicIntelligence: GolfIntelligenceService = {
   roundSummary(round, course) {
@@ -60,5 +70,12 @@ export const deterministicIntelligence: GolfIntelligenceService = {
     const safe = sanitizeQuestion(question); if (!safe || refusal(safe)) return result('assistant_refusal', [], 'I can only answer from your authorized golf records. I cannot provide another player’s private data, medical or gambling advice, unsupported live conditions, or unverified official claims.', 'high');
     if (/losing.*strokes|practice|hole/i.test(safe)) return result('assistant_answer', facts, facts.length ? `Based on your authorized recorded facts: ${facts.map((item) => `${item.label}: ${item.value}`).join('; ')}. Your next practice focus should be treated as advisory.` : 'I do not have enough authorized round data to answer that yet.', facts.length ? 'medium' : 'low');
     return result('assistant_answer', facts, facts.length ? `I found these authorized facts in your golf records: ${facts.map((item) => `${item.label}: ${item.value}`).join('; ')}.` : 'I do not have enough authorized round data to answer that yet.', facts.length ? 'medium' : 'low');
+  },
+  answerCourseQuestion(question, facts) {
+    const safe = sanitizeQuestion(question);
+    if (!safe || refusal(safe)) return result('course_assistant_refusal', [], 'I can only answer from approved course information. I cannot provide private player data, unsupported live conditions, medical or gambling advice, or unverified official claims.', 'high');
+    return result('course_assistant_answer', facts, facts.length
+      ? `Based on approved course context: ${facts.map((item) => `${item.label}: ${item.value}`).join('; ')}.`
+      : 'I do not have an approved course record for that question yet. Please ask the clubhouse or course operator.', facts.length ? 'high' : 'low');
   },
 };

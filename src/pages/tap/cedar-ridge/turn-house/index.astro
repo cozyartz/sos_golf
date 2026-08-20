@@ -1,0 +1,39 @@
+---
+import Layout from '../../../../layouts/Layout.astro';
+---
+<Layout title="Turn House Tap — StickLink Golf" description="A tap-connected course moment for food, guidance, scoring, and league context." eyebrow="TAP DESTINATION / PROPOSED PILOT EXPERIENCE">
+  <style>
+    .tap-shell { max-width: 980px; }
+    .tap-hero { display:grid; grid-template-columns:1.2fr .8fr; gap:28px; align-items:end; padding:clamp(28px,6vw,72px) 0 36px; border-bottom:1px solid var(--line); }
+    .tap-hero h1 { max-width:720px; margin:12px 0 18px; font-size:clamp(46px,8vw,92px); line-height:.92; letter-spacing:-.08em; }
+    .tap-hero p { max-width:560px; color:var(--muted); font-size:18px; line-height:1.55; }
+    .tap-signal { min-height:220px; padding:28px; border:1px solid #536b46; background:linear-gradient(145deg,#1b3b2c,#10251b); color:#f7f5eb; display:flex; flex-direction:column; justify-content:space-between; }
+    .tap-signal-mark { width:54px; height:54px; display:grid; place-items:center; border:1px solid var(--lime); border-radius:50%; color:var(--lime); font:22px 'DM Mono',monospace; }
+    .tap-signal small { color:#bdd1b5; font:10px 'DM Mono',monospace; letter-spacing:.12em; }
+    .tap-signal strong { display:block; margin-top:14px; font-size:22px; letter-spacing:-.04em; }
+    .tap-actions { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:26px 0; }
+    .tap-action { min-height:190px; padding:22px; border:1px solid var(--line); background:var(--card); display:flex; flex-direction:column; justify-content:space-between; }
+    .tap-action span { color:var(--orange); font:10px 'DM Mono',monospace; letter-spacing:.12em; }
+    .tap-action h2 { margin:20px 0 8px; font-size:25px; letter-spacing:-.05em; }
+    .tap-action p { margin:0 0 20px; color:var(--muted); font-size:13px; line-height:1.5; }
+    .tap-context { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+    .tap-context-card { padding:22px; background:#f0eee6; border:1px solid var(--line); }
+    .tap-context-card h2 { margin:8px 0; font-size:24px; letter-spacing:-.05em; }
+    .tap-context-card p { margin:0; color:var(--muted); line-height:1.5; }
+    .tap-note { margin-top:28px; }
+    @media (max-width:720px) { .tap-hero,.tap-context { grid-template-columns:1fr; }.tap-actions { grid-template-columns:1fr; }.tap-action { min-height:150px; } }
+  </style>
+  <section class="page shell tap-shell">
+    <div class="tap-hero">
+      <div><div class="eyebrow">ONE TAP · THE RIGHT MOMENT</div><h1>You’re at the turn house.</h1><p>State of Stick connects the physical course to the digital round. A golfer should not need to search, download, or guess what to do next.</p></div>
+      <div class="tap-signal"><div class="tap-signal-mark">⌁</div><div><small>CONNECTED COURSE MOMENT</small><strong>Cedar Ridge · Turn House</strong></div></div>
+    </div>
+    <div class="tap-actions">
+      <article class="tap-action"><div><span>01 / KEEP PLAYING</span><h2>Order food or drinks.</h2><p>See approved services for this point and request pickup or cart delivery without leaving the round.</p></div><a class="button" href="/course/cedar-ridge/#course-services-title">See services ↗</a></article>
+      <article class="tap-action"><div><span>02 / KNOW THE COURSE</span><h2>Ask the Golf Agent.</h2><p>Get grounded guidance from approved course and hole context, with the clubhouse in control.</p></div><a class="button secondary" href="/operator/">See the Agent controls ↗</a></article>
+      <article class="tap-action"><div><span>03 / KEEP THE ROUND</span><h2>Score and stay connected.</h2><p>Return to the active round, league context, and passport without losing your place.</p></div><a class="button secondary" href="/round/cedar-ridge/">Open round ↗</a></article>
+    </div>
+    <div class="tap-context"><article class="tap-context-card"><div class="eyebrow">WHY THIS MATTERS</div><h2>The course becomes responsive.</h2><p>The marker is no longer just a sign. It is an entry point into the right service, answer, event, and memory for that place and moment.</p></article><article class="tap-context-card"><div class="eyebrow">BUILT FOR TRUST</div><h2>Approved context first.</h2><p>The experience can only show course information that the operator has approved. Actions that affect scores, money, or staff remain explicitly authorized.</p></article></div>
+    <div class="source-note tap-note"><strong>CONCEPT / PROPOSED PILOT</strong><span>This is a tap-connected product experience, not proof that Cedar Ridge is an active partner or that a physical tap is installed. Live tap resolution requires an approved course, registered hardware, and operator authorization.</span></div>
+  </section>
+</Layout>

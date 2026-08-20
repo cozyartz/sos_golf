@@ -24,6 +24,7 @@ npx wrangler d1 migrations apply sticklink-golf --local --config worker/wrangler
 The API currently exposes:
 
 - `GET /health`
+- `GET /api/v1/taps/:hardwareId`
 - `GET /api/v1/courses`
 - `GET /api/v1/courses/:courseId`
 - `GET /api/v1/leagues/:leagueId`
@@ -51,6 +52,13 @@ The API currently exposes:
 - `GET /api/v1/courses/:courseId/intelligence`
 - `POST /api/v1/assistant`
 - `POST /api/v1/intelligence/:insightId/feedback`
+- `GET /api/v1/courses/:courseId/knowledge`
+- `POST /api/v1/courses/:courseId/knowledge`
+- `POST /api/v1/courses/:courseId/assistant`
+- `GET /api/v1/courses/:courseId/question-insights`
+- `POST /api/v1/courses/:courseId/tap-points`
+- `POST /api/v1/courses/:courseId/tap-points/:tapPointId/status`
+- `POST /api/v1/courses/:courseId/tap-events`
 
 Round creation requires `Authorization: Bearer <GOLF_WRITE_TOKEN>`. This is a
 temporary service-auth seam for the persistent pilot. It is not the final
@@ -63,6 +71,11 @@ actor headers. A golfer service request requires the temporary write token plus
 the requesting golfer identity. The current slice records requests and
 fulfillment status but does not charge a card, settle funds, or claim a POS
 integration; those remain State of Stick commerce boundaries.
+
+Course knowledge writes are operator-scoped. Only published knowledge records
+are available to the course assistant, and every record keeps its source and
+approval identity. Tap points begin as planned and unapproved; a separate
+operator approval workflow must mark them active before tap events are accepted.
 
 ## Production boundary
 

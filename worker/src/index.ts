@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { calculateLeaguePoints, canVerifyRound, pageWindow, trustLevelForEvents, type VerificationEvent } from '../../src/lib/network';
-import { deterministicIntelligence, type IntelligenceFact } from '../../src/lib/intelligence';
+import { classifyCourseQuestion, deterministicIntelligence, type IntelligenceFact } from '../../src/lib/intelligence';
 import { calculateServiceTotal, canTransitionServiceRequest, type GolfServiceType, type ServiceRequestStatus } from '../../src/lib/services';
 
 type JsonObject = Record<string, unknown>;
@@ -281,9 +281,115 @@ async function getImagery(env: Env, courseId: string): Promise<Response> {
 
 async function getStickLinks(env: Env, courseId: string): Promise<Response> {
   if (!isValidId(courseId)) return error('Course id is invalid.', 400, 'INVALID_INPUT');
-  const locations = await env.DB.prepare(`SELECT id, label, location_type, geometry_json, source, approved_at
-    FROM golf_sticklink_locations WHERE course_id = ?1 AND approved_by_operator = 1 ORDER BY label`).bind(courseId).all();
+  const locations = await env.DB.prepare(`SELECT id, label, location_type, geometry_json, source, status, approved_at
+    FROM golf_sticklink_locations WHERE course_id = ?1 AND approved_by_operator = 1 AND status != 'retired' ORDER BY label`).bind(courseId).all();
   return json({ courseId, locations: locations.results }, 200, { 'cache-control': 'public, max-age=60' });
+}
+
+async function resolveTap(env: Env, hardwareId: string): Promise<Response> {
+  if (!/^[a-zA-Z0-9._-]{2,120}$/.test(hardwareId)) return error('Tap hardware id is invalid.', 400, 'INVALID_INPUT');
+  const tap = await env.DB.prepare(`SELECT s.id, s.course_id, s.label, s.location_type, s.geometry_json, c.name AS course_name, c.region, c.address
+    FROM golf_sticklink_locations s JOIN golf_courses c ON c.id = s.course_id
+    WHERE s.hardware_id = ?1 AND s.approved_by_operator = 1 AND s.status = 'active'`).bind(hardwareId).first<Record<string, unknown>>();
+  if (!tap) return error('This tap point is not active or has not been approved.', 404, 'NOT_FOUND');
+  const knowledge = await env.DB.prepare("SELECT id, content_type, title, body, source FROM golf_course_knowledge WHERE course_id = ?1 AND status = 'published' AND content_type IN ('faq', 'local_rule', 'service_info', 'event_info') ORDER BY updated_at DESC LIMIT 20").bind(tap.course_id).all();
+  const services = await env.DB.prepare(`SELECT id, service_type, name, description, price_cents, currency, fulfillment_modes
+    FROM golf_service_catalog WHERE course_id = ?1 AND active = 1 AND published = 1 ORDER BY service_type, name`).bind(tap.course_id).all();
+  const announcements = await env.DB.prepare(`SELECT id, title, body, created_at FROM golf_course_announcements
+    WHERE course_id = ?1 AND published = 1 ORDER BY created_at DESC LIMIT 5`).bind(tap.course_id).all();
+  return json({ tap: { id: tap.id, label: tap.label, locationType: tap.location_type, geometryJson: tap.geometry_json }, course: { id: tap.course_id, name: tap.course_name, region: tap.region, address: tap.address }, knowledge: knowledge.results, services: services.results, announcements: announcements.results, actionBoundary: 'This tap resolves approved context. Identity, scoring writes, service requests, and consequential actions require the golfer or operator authorization boundary.' }, 200, { 'cache-control': 'public, max-age=30' });
+}
+
+async function getCourseKnowledge(env: Env, courseId: string, operator = false): Promise<Response> {
+  if (!isValidId(courseId)) return error('Course id is invalid.', 400, 'INVALID_INPUT');
+  const query = operator
+    ? 'SELECT id, content_type, title, body, source, source_identifier, status, approved_by_person_id, approved_at, created_at, updated_at FROM golf_course_knowledge WHERE course_id = ?1 ORDER BY updated_at DESC'
+    : "SELECT id, content_type, title, body, source, source_identifier, approved_at, updated_at FROM golf_course_knowledge WHERE course_id = ?1 AND status = 'published' ORDER BY content_type, title";
+  const records = await env.DB.prepare(query).bind(courseId).all();
+  return json({ courseId, knowledge: records.results, sourceBoundary: operator ? 'Operator-managed records; unpublished content is not used for public guidance.' : 'Published course records only; the Golf Agent must refuse unsupported questions.' }, 200, { 'cache-control': operator ? 'private, no-store' : 'public, max-age=60' });
+}
+
+async function createCourseKnowledge(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); const actorId = request.headers.get('x-state-of-stick-person-id');
+  if (!organizationId || !actorId || !isValidPersonId(actorId)) return error('Organization and actor identity are required.', 400, 'INVALID_INPUT');
+  if (!isValidId(courseId)) return error('Course id is invalid.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first();
+  if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  const types = new Set(['faq', 'local_rule', 'condition', 'service_info', 'event_info']);
+  if (typeof body.contentType !== 'string' || !types.has(body.contentType) || typeof body.title !== 'string' || body.title.length < 2 || body.title.length > 160 || typeof body.body !== 'string' || body.body.length < 2 || body.body.length > 4000 || typeof body.source !== 'string' || body.source.length < 2 || body.source.length > 200) return error('contentType, title, body, and source are required.', 400, 'INVALID_INPUT');
+  const status = body.status === 'published' ? 'published' : 'draft'; const id = `knowledge-${crypto.randomUUID()}`; const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO golf_course_knowledge (id, course_id, organization_id, content_type, title, body, source, source_identifier, status, approved_by_person_id, approved_at, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)`).bind(id, courseId, organizationId, body.contentType, body.title, body.body, body.source, typeof body.sourceIdentifier === 'string' ? body.sourceIdentifier.slice(0, 200) : null, status, status === 'published' ? actorId : null, status === 'published' ? now : null, now),
+    env.DB.prepare(`INSERT INTO golf_operator_audit_events (id, organization_id, course_id, actor_person_id, action, entity_type, entity_id, details_json, created_at) VALUES (?1, ?2, ?3, ?4, 'create', 'course_knowledge', ?5, ?6, ?7)`).bind(`op-${crypto.randomUUID()}`, organizationId, courseId, actorId, id, JSON.stringify({ contentType: body.contentType, status }), now),
+  ]);
+  return json({ knowledge: { id, courseId, contentType: body.contentType, title: body.title, status, approvedAt: status === 'published' ? now : null } }, 201);
+}
+
+async function answerCourseAssistant(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const personId = request.headers.get('x-state-of-stick-person-id'); if (!personId || !isValidPersonId(personId)) return error('A golfer identity is required.', 400, 'INVALID_INPUT');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  if (typeof body.question !== 'string' || body.question.length < 1 || body.question.length > 500) return error('question must be 1 to 500 characters.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT organization_id FROM golf_courses WHERE id = ?1').bind(courseId).first<{ organization_id: string }>(); if (!course) return error('Course not found.', 404, 'NOT_FOUND');
+  const knowledge = await env.DB.prepare("SELECT id, title, body, source FROM golf_course_knowledge WHERE course_id = ?1 AND status = 'published' ORDER BY updated_at DESC LIMIT 100").bind(courseId).all();
+  const facts = knowledge.results.map((row) => factFrom(`knowledge:${row.id}`, String(row.title), String(row.body), true));
+  const insight = deterministicIntelligence.answerCourseQuestion(body.question, facts); const insightId = await persistInsight(env, insight, { personId, courseId });
+  await env.DB.prepare(`INSERT INTO golf_course_question_events (id, course_id, organization_id, person_id, category, answered_from_approved_context, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`).bind(`question-${crypto.randomUUID()}`, courseId, course.organization_id, personId, classifyCourseQuestion(body.question), insight.kind === 'course_assistant_answer' && facts.length > 0 ? 1 : 0, new Date().toISOString()).run();
+  return json({ courseId, answer: insight, insightId, sourceBoundary: 'Approved published course knowledge only.' }, 200, { 'cache-control': 'private, no-store' });
+}
+
+async function getCourseQuestionInsights(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); if (!organizationId) return error('Organization identity is required.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first(); if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const grouped = await env.DB.prepare(`SELECT category, COUNT(*) AS asked, SUM(CASE WHEN answered_from_approved_context = 0 THEN 1 ELSE 0 END) AS unanswered, MAX(created_at) AS last_asked FROM golf_course_question_events WHERE course_id = ?1 AND organization_id = ?2 GROUP BY category ORDER BY asked DESC`).bind(courseId, organizationId).all();
+  const total = await env.DB.prepare('SELECT COUNT(*) AS count, SUM(CASE WHEN answered_from_approved_context = 0 THEN 1 ELSE 0 END) AS unanswered FROM golf_course_question_events WHERE course_id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first<{ count: number; unanswered: number | null }>();
+  return json({ courseId, totals: { asked: Number(total?.count ?? 0), unanswered: Number(total?.unanswered ?? 0) }, categories: grouped.results, sourceBoundary: 'Aggregated categories only; raw golfer questions are not stored.' }, 200, { 'cache-control': 'private, no-store' });
+}
+
+async function registerTapPoint(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); const actorId = request.headers.get('x-state-of-stick-person-id');
+  if (!organizationId || !actorId || !isValidPersonId(actorId)) return error('Organization and actor identity are required.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first(); if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  const geometryJson = typeof body.geometryJson === 'string' ? body.geometryJson : JSON.stringify(body.geometryJson ?? null);
+  if (typeof body.label !== 'string' || body.label.length < 2 || body.label.length > 160 || typeof body.locationType !== 'string' || !['tee', 'green', 'clubhouse', 'turn_house', 'sponsor'].includes(body.locationType) || !isValidGeometryJson(geometryJson)) return error('label, locationType, and valid geometryJson are required.', 400, 'INVALID_INPUT');
+  const id = `tap-${crypto.randomUUID()}`; const now = new Date().toISOString(); const hardwareId = typeof body.hardwareId === 'string' && /^[a-zA-Z0-9._-]{2,120}$/.test(body.hardwareId) ? body.hardwareId : null;
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO golf_sticklink_locations (id, course_id, label, location_type, geometry_json, source, organization_id, approved_by_operator, approved_at, hardware_id, status, installed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, NULL, ?8, 'planned', NULL)`).bind(id, courseId, body.label, body.locationType, geometryJson, typeof body.source === 'string' ? body.source.slice(0, 200) : 'operator-entered', organizationId, hardwareId),
+    env.DB.prepare(`INSERT INTO golf_operator_audit_events (id, organization_id, course_id, actor_person_id, action, entity_type, entity_id, details_json, created_at) VALUES (?1, ?2, ?3, ?4, 'create', 'tap_point', ?5, ?6, ?7)`).bind(`op-${crypto.randomUUID()}`, organizationId, courseId, actorId, id, JSON.stringify({ hardwareId, status: 'planned' }), now),
+  ]);
+  return json({ tapPoint: { id, courseId, label: body.label, status: 'planned', approvedByOperator: false } }, 201);
+}
+
+async function recordTapEvent(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const body = await readJson(request); if (body instanceof Response) return body;
+  if (typeof body.tapPointId !== 'string' || !isValidId(body.tapPointId.replace(/^tap-/, 'tpx'))) return error('tapPointId is required.', 400, 'INVALID_INPUT');
+  const tap = await env.DB.prepare("SELECT id, location_type FROM golf_sticklink_locations WHERE id = ?1 AND course_id = ?2 AND approved_by_operator = 1 AND status = 'active'").bind(body.tapPointId, courseId).first<{ id: string; location_type: string }>(); if (!tap) return error('Active approved tap point not found.', 404, 'NOT_FOUND');
+  const id = `tap-event-${crypto.randomUUID()}`; const now = new Date().toISOString(); const context = ['tee', 'green'].includes(tap.location_type) ? 'hole' : tap.location_type;
+  await env.DB.prepare(`INSERT INTO golf_tap_events (id, tap_point_id, course_id, person_id, round_id, context, client_event_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`).bind(id, tap.id, courseId, typeof body.personId === 'string' && isValidPersonId(body.personId) ? body.personId : null, typeof body.roundId === 'string' ? body.roundId : null, context, typeof body.clientEventId === 'string' ? body.clientEventId.slice(0, 120) : null, now).run();
+  return json({ tapEvent: { id, tapPointId: tap.id, courseId, context, createdAt: now } }, 201);
+}
+
+async function updateTapPointStatus(request: Request, env: Env, courseId: string, tapPointId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); const actorId = request.headers.get('x-state-of-stick-person-id');
+  if (!organizationId || !actorId || !isValidPersonId(actorId)) return error('Organization and actor identity are required.', 400, 'INVALID_INPUT');
+  if (!isValidId(courseId) || !isValidId(tapPointId.replace(/^tap-/, 'tpx'))) return error('Course or tap point id is invalid.', 400, 'INVALID_INPUT');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  const allowed = new Set(['planned', 'active', 'needs_attention', 'retired']); if (typeof body.status !== 'string' || !allowed.has(body.status)) return error('A valid tap point status is required.', 400, 'INVALID_INPUT');
+  const current = await env.DB.prepare('SELECT id, status FROM golf_sticklink_locations WHERE id = ?1 AND course_id = ?2 AND organization_id = ?3').bind(tapPointId, courseId, organizationId).first<{ id: string; status: string }>();
+  if (!current) return error('Tap point not found in this organization.', 404, 'NOT_FOUND');
+  const now = new Date().toISOString(); const approved = body.status === 'active' ? 1 : 0;
+  await env.DB.batch([
+    env.DB.prepare('UPDATE golf_sticklink_locations SET status = ?1, approved_by_operator = ?2, approved_at = CASE WHEN ?2 = 1 THEN ?3 ELSE approved_at END, installed_at = CASE WHEN ?1 = \'active\' AND installed_at IS NULL THEN ?3 ELSE installed_at END WHERE id = ?4 AND course_id = ?5 AND organization_id = ?6').bind(body.status, approved, now, tapPointId, courseId, organizationId),
+    env.DB.prepare(`INSERT INTO golf_operator_audit_events (id, organization_id, course_id, actor_person_id, action, entity_type, entity_id, details_json, created_at) VALUES (?1, ?2, ?3, ?4, 'status_change', 'tap_point', ?5, ?6, ?7)`).bind(`op-${crypto.randomUUID()}`, organizationId, courseId, actorId, tapPointId, JSON.stringify({ from: current.status, to: body.status }), now),
+  ]);
+  return json({ tapPoint: { id: tapPointId, courseId, status: body.status, approvedByOperator: Boolean(approved), updatedAt: now } });
 }
 
 async function createMapLayer(request: Request, env: Env, courseId: string): Promise<Response> {
@@ -659,6 +765,7 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin'), env) });
     if (url.pathname === '/health' && request.method === 'GET') return withCors(json({ ok: true, service: 'sticklink-golf-api', environment: env.ENVIRONMENT }), request, env);
+    if (url.pathname.match(/^\/api\/v1\/taps\/[^/]+$/) && request.method === 'GET') return withCors(await resolveTap(env, url.pathname.split('/')[4] ?? ''), request, env);
     if (!url.pathname.startsWith('/api/v1/')) return withCors(error('Not found.', 404, 'NOT_FOUND'), request, env);
 
     let response: Response;
@@ -682,6 +789,20 @@ export default {
       response = await getImagery(env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/sticklinks$/) && request.method === 'GET') {
       response = await getStickLinks(env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/knowledge$/) && request.method === 'GET') {
+      response = await getCourseKnowledge(env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/knowledge$/) && request.method === 'POST') {
+      response = await createCourseKnowledge(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/assistant$/) && request.method === 'POST') {
+      response = await answerCourseAssistant(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/question-insights$/) && request.method === 'GET') {
+      response = await getCourseQuestionInsights(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tap-points$/) && request.method === 'POST') {
+      response = await registerTapPoint(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tap-events$/) && request.method === 'POST') {
+      response = await recordTapEvent(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tap-points\/[^/]+\/status$/) && request.method === 'POST') {
+      response = await updateTapPointStatus(request, env, url.pathname.split('/')[4] ?? '', url.pathname.split('/')[6] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/announcements$/) && request.method === 'GET') {
       response = await getAnnouncements(env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/announcements$/) && request.method === 'POST') {
