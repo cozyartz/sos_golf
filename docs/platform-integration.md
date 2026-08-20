@@ -28,6 +28,8 @@ Implemented in this repository:
 - Migration `0012` creates a retry-safe platform event outbox.
 - Course claims, round submissions, tap interactions, and service requests now
   write a corresponding outbox event in the same D1 transaction.
+- Course publication is explicit: a course is not public or SEO-discoverable
+  until an authorized operator publishes it.
 - Event payloads deliberately avoid raw question text and retain only the
   minimum facts needed for platform routing and analytics.
 

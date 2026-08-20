@@ -12,5 +12,6 @@
 - `0010_course_claim_requests.sql` — free-first course onboarding requests with explicit operator review and no automatic publishing.
 - `0011_golf_operator_billing.sql` — Stripe customer/subscription references, verified event ledger, and Connected Course entitlement state.
 - `0012_platform_integration_outbox.sql` — retry-safe golf event outbox for the State of Stick platform analytics, consent, retention, metering, and integration boundary.
+- `0013_course_publication_workflow.sql` — operator-controlled course publication state for public profiles, SEO, and discovery.
 
 Wrangler applies all pending migrations in order. Review the complete pending set before applying against D1. Phase 2 changes are source-only until an operator explicitly approves local or remote migration application.

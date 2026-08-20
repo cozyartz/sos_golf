@@ -4,7 +4,9 @@ export type GolfPlatformEventName =
   | 'golf.course_claim_requested'
   | 'golf.round_submitted'
   | 'golf.tap_interaction'
-  | 'golf.service_requested';
+  | 'golf.service_requested'
+  | 'golf.course_published'
+  | 'golf.course_unpublished';
 
 export type GolfPlatformEvent = {
   eventId: string;

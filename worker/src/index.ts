@@ -1005,6 +1005,65 @@ async function updateCourseProfile(request: Request, env: Env, courseId: string)
   return json({ courseId, updated: true });
 }
 
+function courseSlug(value: string): string {
+  return value.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100) || 'course';
+}
+
+async function getCoursePublication(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id');
+  if (!organizationId || !isValidId(courseId)) return error('Organization and course identity are required.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id, name FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first<{ id: string; name: string }>();
+  if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const publication = await env.DB.prepare('SELECT * FROM golf_course_publications WHERE course_id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first();
+  return json({ courseId, courseName: course.name, publication: publication ?? { courseId, organizationId, slug: courseSlug(course.name), status: 'draft' } }, 200, { 'cache-control': 'private, no-store' });
+}
+
+async function updateCoursePublication(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); const actorId = request.headers.get('x-state-of-stick-person-id');
+  if (!organizationId || !actorId || !isValidPersonId(actorId) || !isValidId(courseId)) return error('Organization, actor, and course identity are required.', 400, 'INVALID_INPUT');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  const action = body.action === 'unpublish' ? 'unpublish' : body.action === 'publish' ? 'publish' : null;
+  if (!action) return error('action must be publish or unpublish.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id, name FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first<{ id: string; name: string }>();
+  if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const existing = await env.DB.prepare('SELECT slug FROM golf_course_publications WHERE course_id = ?1').bind(courseId).first<{ slug: string }>();
+  const slug = typeof body.slug === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(body.slug) ? body.slug.slice(0, 100) : existing?.slug ?? courseSlug(course.name);
+  const title = typeof body.title === 'string' && body.title.trim().length >= 2 ? body.title.trim().slice(0, 180) : `${course.name} | Course Guide, Events & Connected Golf`;
+  const description = typeof body.description === 'string' && body.description.trim().length >= 20 ? body.description.trim().slice(0, 320) : `Explore approved course information, local guidance, events, leagues, and connected golfer experiences at ${course.name}.`;
+  const now = new Date().toISOString(); const status = action === 'publish' ? 'published' : 'unpublished';
+  try {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO golf_course_publications (course_id, organization_id, slug, status, title, description, approved_by_person_id, approved_at, published_at, unpublished_at, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CASE WHEN ?4 = 'published' THEN ?8 ELSE NULL END, CASE WHEN ?4 = 'unpublished' THEN ?8 ELSE NULL END, ?8, ?8)
+        ON CONFLICT(course_id) DO UPDATE SET organization_id = excluded.organization_id, slug = excluded.slug, status = excluded.status, title = excluded.title, description = excluded.description, approved_by_person_id = excluded.approved_by_person_id, approved_at = excluded.approved_at, published_at = CASE WHEN excluded.status = 'published' THEN excluded.published_at ELSE golf_course_publications.published_at END, unpublished_at = CASE WHEN excluded.status = 'unpublished' THEN excluded.unpublished_at ELSE golf_course_publications.unpublished_at END, updated_at = excluded.updated_at`).bind(courseId, organizationId, slug, status, title, description, actorId, now),
+      env.DB.prepare(`INSERT INTO golf_operator_audit_events (id, organization_id, course_id, actor_person_id, action, entity_type, entity_id, details_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'course_publication', ?6, ?7, ?8)`).bind(`op-${crypto.randomUUID()}`, organizationId, courseId, actorId, action, courseId, JSON.stringify({ status, slug }), now),
+      platformEventStatement(env.DB, { eventId: `platform-course-publication-${courseId}-${now}`, eventName: action === 'publish' ? 'golf.course_published' : 'golf.course_unpublished', organizationId, courseId, aggregateType: 'course_publication', aggregateId: courseId, occurredAt: now, payload: { slug, status } }),
+    ]);
+  } catch (caught) {
+    if (String(caught).includes('UNIQUE')) return error('That public course slug is already in use.', 409, 'SLUG_EXISTS');
+    throw caught;
+  }
+  return json({ courseId, publication: { slug, status, title, description, approvedByPersonId: actorId, updatedAt: now } });
+}
+
+async function getPublicCourseProfile(env: Env, slug: string): Promise<Response> {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return error('Course profile not found.', 404, 'NOT_FOUND');
+  const course = await env.DB.prepare(`SELECT c.id, c.name, c.region, c.address, c.state_code, c.latitude, c.longitude, p.slug, p.title, p.description, p.published_at
+    FROM golf_courses c JOIN golf_course_publications p ON p.course_id = c.id
+    WHERE p.slug = ?1 AND p.status = 'published' LIMIT 1`).bind(slug).first<Record<string, unknown>>();
+  if (!course) return error('Course profile not found.', 404, 'NOT_FOUND');
+  const [holes, tees, announcements, services, leagues] = await Promise.all([
+    env.DB.prepare('SELECT hole_number, name, par, handicap_index, yards, challenge FROM golf_holes WHERE course_id = ?1 ORDER BY hole_number').bind(course.id).all(),
+    env.DB.prepare('SELECT id, name, color, rating, slope, yardage FROM golf_tee_sets WHERE course_id = ?1 ORDER BY yardage DESC').bind(course.id).all(),
+    env.DB.prepare("SELECT title, body, published, updated_at FROM golf_course_announcements WHERE course_id = ?1 AND published = 1 ORDER BY updated_at DESC LIMIT 20").bind(course.id).all(),
+    env.DB.prepare('SELECT id, service_type, name, description, price_cents, currency, fulfillment_modes FROM golf_service_catalog WHERE course_id = ?1 AND active = 1 AND published = 1 ORDER BY name').bind(course.id).all(),
+    env.DB.prepare("SELECT l.id, l.name, l.season, l.format, l.region FROM golf_leagues l JOIN golf_league_courses lc ON lc.league_id = l.id WHERE lc.course_id = ?1 AND l.visibility = 'public' AND l.status IN ('draft', 'active') ORDER BY l.start_date, l.name LIMIT 20").bind(course.id).all(),
+  ]);
+  return json({ profile: { ...course, holes: holes.results, teeSets: tees.results, announcements: announcements.results, services: services.results, leagues: leagues.results, sourceBoundary: 'Only operator-approved published records are included.' } }, 200, { 'cache-control': 'public, max-age=60, s-maxage=300' });
+}
+
 async function getRound(env: Env, id: string): Promise<Response> {
   if (!/^round-[a-zA-Z0-9-]{8,100}$/.test(id)) return error('Round id is invalid.', 400, 'INVALID_INPUT');
   const round = await env.DB.prepare('SELECT * FROM golf_rounds WHERE id = ?1').bind(id).first();
@@ -1050,6 +1109,7 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin'), env) });
     if (url.pathname === '/health' && request.method === 'GET') return withCors(json({ ok: true, service: 'sticklink-golf-api', environment: env.ENVIRONMENT }), request, env);
+    if (url.pathname.match(/^\/api\/v1\/public\/courses\/[^/]+$/) && request.method === 'GET') return withCors(await getPublicCourseProfile(env, url.pathname.split('/')[5] ?? ''), request, env);
     if (url.pathname.match(/^\/api\/v1\/taps\/[^/]+$/) && request.method === 'GET') return withCors(await resolveTap(env, url.pathname.split('/')[4] ?? ''), request, env);
     if (!url.pathname.startsWith('/api/v1/')) return withCors(error('Not found.', 404, 'NOT_FOUND'), request, env);
 
@@ -1060,6 +1120,10 @@ export default {
       response = await handleGolfStripeWebhook(request, env);
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/billing\/checkout$/) && request.method === 'POST') {
       response = await createOperatorBillingCheckout(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/publication$/) && request.method === 'GET') {
+      response = await getCoursePublication(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/publication$/) && request.method === 'POST') {
+      response = await updateCoursePublication(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname === '/api/v1/courses' && request.method === 'GET') {
       response = await discoverCourses(env, request);
     } else if (url.pathname.match(/^\/api\/v1\/players\/[^/]+\/passport$/) && request.method === 'GET') {

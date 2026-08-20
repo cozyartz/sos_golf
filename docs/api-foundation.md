@@ -60,6 +60,9 @@ The API currently exposes:
 - `GET /api/v1/operator-plans`
 - `POST /api/v1/courses/:courseId/billing/checkout`
 - `POST /api/v1/stripe/webhook`
+- `GET /api/v1/courses/:courseId/publication`
+- `POST /api/v1/courses/:courseId/publication` — operator-controlled publish/unpublish
+- `GET /api/v1/public/courses/:slug` — public profile containing published records only
 - `POST /api/v1/assistant`
 - `POST /api/v1/intelligence/:insightId/feedback`
 - `GET /api/v1/courses/:courseId/knowledge`
@@ -97,6 +100,13 @@ Course knowledge writes are operator-scoped. Only published knowledge records
 are available to the course assistant, and every record keeps its source and
 approval identity. Tap points begin as planned and unapproved; a separate
 operator approval workflow must mark them active before tap events are accepted.
+
+Course publication is a separate boundary from course existence. A public SEO
+profile is unavailable until an authorized operator explicitly publishes it.
+Unpublishing removes it from the public profile API without deleting the course
+or its operational history. Publication, unpublication, claims, rounds, taps,
+and service requests create retry-safe events for the State of Stick platform
+outbox.
 
 The course assistant uses Cloudflare Workers AI only after the deterministic
 refusal and approved-context checks pass. If inference is unavailable, it falls
