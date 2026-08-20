@@ -12,6 +12,14 @@
   "ai": {
     "binding": "AI"
   },
+  "queues": {
+    "producers": [
+      {
+        "binding": "PLATFORM_EVENTS",
+        "queue": "sostick-platform-events-prod"
+      }
+    ]
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -52,6 +60,14 @@
       ],
       "ai": {
         "binding": "AI"
+      },
+      "queues": {
+        "producers": [
+          {
+            "binding": "PLATFORM_EVENTS",
+            "queue": "sostick-platform-events-prod"
+          }
+        ]
       },
       "durable_objects": {
         "bindings": [

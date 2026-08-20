@@ -5,7 +5,7 @@ import { buildGolfAgentPrompt, extractGolfAgentText } from '../../src/lib/agent'
 import { calculateServiceTotal, canTransitionServiceRequest, type GolfServiceType, type ServiceRequestStatus } from '../../src/lib/services';
 import { calculateHandicapStableford, calculateProvisionalCourseHandicap, resolveCompetition, type CompetitionFormat } from '../../src/lib/competition';
 import { createOperatorCheckout, stripeObjectString, verifyStripeWebhook, type StripeEvent } from './stripe';
-import { platformEventStatement } from './platform';
+import { forwardPendingPlatformEvents, platformEventStatement } from './platform';
 import { readStateOfStickAssertion } from './identity';
 import type { PlatformIdentityClaims } from '../../src/lib/platform-contract';
 import { golferPlans } from '../../src/lib/membership';
@@ -1340,7 +1340,7 @@ export class RoundSession extends DurableObject<Env> {
 }
 
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin'), env) });
     if (url.pathname === '/health' && request.method === 'GET') return withCors(json({ ok: true, service: 'sticklink-golf-api', environment: env.ENVIRONMENT }), request, env);
@@ -1497,6 +1497,7 @@ export default {
     } else {
       response = error('Not found.', 404, 'NOT_FOUND');
     }
+    ctx.waitUntil(forwardPendingPlatformEvents(env.DB, env.PLATFORM_EVENTS));
     return withCors(response, request, env);
   },
 } satisfies ExportedHandler<Env>;
