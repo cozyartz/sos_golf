@@ -320,6 +320,77 @@ async function getTeeTimeActivation(env: Env, token: string): Promise<Response> 
   return json({ activation: { reservationId: reservation.id, course: { id: reservation.course_id, name: reservation.course_name, region: reservation.course_region }, startsAt: reservation.starts_at, playerCount: reservation.player_count, status: reservation.status, bookingUrl: reservation.booking_url, nextStep: 'authenticated_golfer_claim_required' }, privacy: 'No golfer names, contact details, payment details, or external reservation identifiers are exposed.' }, 200, { 'cache-control': 'private, no-store' });
 }
 
+type TeeTimeReservation = {
+  id: string;
+  course_id: string;
+  organization_id: string;
+  starts_at: string;
+  player_count: number;
+  status: TeeTimeStatus;
+  activation_expires_at: string | null;
+};
+
+async function findActiveTeeTime(env: Env, token: string): Promise<TeeTimeReservation | null> {
+  if (!/^[A-Za-z0-9_-]{24,80}$/.test(token)) return null;
+  const tokenHash = await hashActivationToken(token);
+  const reservation = await env.DB.prepare(`SELECT id, course_id, organization_id, starts_at, player_count, status, activation_expires_at
+    FROM golf_tee_time_reservations WHERE activation_token_hash = ?1`).bind(tokenHash).first<TeeTimeReservation>();
+  if (!reservation || (reservation.activation_expires_at && Date.parse(reservation.activation_expires_at) < Date.now()) || reservation.status === 'cancelled' || reservation.status === 'no_show') return null;
+  return reservation;
+}
+
+async function claimTeeTimeSlot(request: Request, env: Env, token: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const personId = request.headers.get('x-state-of-stick-person-id');
+  if (!personId || !isValidPersonId(personId)) return error('A golfer identity is required.', 401, 'UNAUTHORIZED');
+  const reservation = await findActiveTeeTime(env, token);
+  if (!reservation) return error('Tee-time activation was not found or is no longer active.', 404, 'NOT_FOUND');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  const playerIndex = Number(body.playerIndex ?? 1);
+  if (!Number.isInteger(playerIndex) || playerIndex < 1 || playerIndex > reservation.player_count) return error('playerIndex is outside the reservation player count.', 400, 'INVALID_INPUT');
+  const existing = await env.DB.prepare('SELECT id, state_of_stick_person_id FROM golf_tee_time_players WHERE reservation_id = ?1 AND player_index = ?2').bind(reservation.id, playerIndex).first<{ id: string; state_of_stick_person_id: string | null }>();
+  if (existing?.state_of_stick_person_id && existing.state_of_stick_person_id !== personId) return error('That player slot has already been claimed.', 409, 'PLAYER_SLOT_TAKEN');
+  const otherSlot = await env.DB.prepare('SELECT player_index FROM golf_tee_time_players WHERE reservation_id = ?1 AND state_of_stick_person_id = ?2').bind(reservation.id, personId).first<{ player_index: number }>();
+  if (otherSlot && Number(otherSlot.player_index) !== playerIndex) return error('This golfer already claimed a slot in this tee time.', 409, 'PLAYER_ALREADY_ASSIGNED');
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO golf_tee_time_players (id, reservation_id, player_index, state_of_stick_person_id, assigned_at) VALUES (?1, ?2, ?3, ?4, ?5)
+      ON CONFLICT(reservation_id, player_index) DO UPDATE SET state_of_stick_person_id = excluded.state_of_stick_person_id, assigned_at = excluded.assigned_at`).bind(existing?.id ?? `tee-player-${crypto.randomUUID()}`, reservation.id, playerIndex, personId, now),
+    env.DB.prepare("UPDATE golf_tee_time_reservations SET status = CASE WHEN status = 'reserved' THEN 'activated' ELSE status END, updated_at = ?1 WHERE id = ?2").bind(now, reservation.id),
+    env.DB.prepare(`INSERT INTO golf_tee_time_events (id, reservation_id, organization_id, actor_person_id, event_type, details_json, created_at) VALUES (?1, ?2, ?3, ?4, 'activated', ?5, ?6)`).bind(`tee-event-${crypto.randomUUID()}`, reservation.id, reservation.organization_id, personId, JSON.stringify({ playerIndex }), now),
+  ]);
+  return json({ reservation: { id: reservation.id, courseId: reservation.course_id, startsAt: reservation.starts_at, playerIndex, status: 'activated', nextStep: 'start_round' } }, 200, { 'cache-control': 'private, no-store' });
+}
+
+async function startTeeTimeRound(request: Request, env: Env, token: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const personId = request.headers.get('x-state-of-stick-person-id');
+  if (!personId || !isValidPersonId(personId)) return error('A golfer identity is required.', 401, 'UNAUTHORIZED');
+  const reservation = await findActiveTeeTime(env, token);
+  if (!reservation) return error('Tee-time activation was not found or is no longer active.', 404, 'NOT_FOUND');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  const playerIndex = Number(body.playerIndex ?? 1);
+  if (!Number.isInteger(playerIndex) || playerIndex < 1 || playerIndex > reservation.player_count) return error('playerIndex is outside the reservation player count.', 400, 'INVALID_INPUT');
+  const player = await env.DB.prepare('SELECT id, round_id FROM golf_tee_time_players WHERE reservation_id = ?1 AND player_index = ?2 AND state_of_stick_person_id = ?3').bind(reservation.id, playerIndex, personId).first<{ id: string; round_id: string | null }>();
+  if (!player) return error('Claim this tee-time player slot before starting a round.', 409, 'PLAYER_SLOT_REQUIRED');
+  if (player.round_id) return json({ round: { id: player.round_id, status: 'in_progress', deduplicated: true } }, 200, { 'cache-control': 'private, no-store' });
+  const format = body.format === 'stableford' || body.format === 'match_play' || body.format === 'skins' ? body.format : 'stroke_play';
+  const teeSetId = typeof body.teeSetId === 'string' ? body.teeSetId : null;
+  if (teeSetId) { const teeSet = await env.DB.prepare('SELECT id FROM golf_tee_sets WHERE id = ?1 AND course_id = ?2').bind(teeSetId, reservation.course_id).first(); if (!teeSet) return error('Tee set is not available for this course.', 400, 'INVALID_INPUT'); }
+  const clientRoundId = typeof body.clientRoundId === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,120}$/.test(body.clientRoundId) ? body.clientRoundId : null;
+  if (clientRoundId) { const existing = await env.DB.prepare('SELECT id, status FROM golf_rounds WHERE client_round_id = ?1').bind(clientRoundId).first(); if (existing) return json({ round: { ...existing, deduplicated: true } }, 200); }
+  const roundId = `round-${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO golf_rounds (id, course_id, format, status, state_of_stick_person_id, state_of_stick_organization_id, client_round_id, tee_time_reservation_id, created_at, updated_at)
+      VALUES (?1, ?2, ?3, 'in_progress', ?4, ?5, ?6, ?7, ?8, ?8)`).bind(roundId, reservation.course_id, format, personId, reservation.organization_id, clientRoundId, reservation.id, now),
+    env.DB.prepare('UPDATE golf_tee_time_players SET round_id = ?1 WHERE id = ?2').bind(roundId, player.id),
+    env.DB.prepare("UPDATE golf_tee_time_reservations SET status = 'checked_in', updated_at = ?1 WHERE id = ?2").bind(now, reservation.id),
+    env.DB.prepare(`INSERT INTO golf_tee_time_events (id, reservation_id, organization_id, actor_person_id, event_type, details_json, created_at) VALUES (?1, ?2, ?3, ?4, 'checked_in', ?5, ?6)`).bind(`tee-event-${crypto.randomUUID()}`, reservation.id, reservation.organization_id, personId, JSON.stringify({ playerIndex, roundId, format, teeSetId }), now),
+  ]);
+  return json({ round: { id: roundId, status: 'in_progress', courseId: reservation.course_id, teeTimeReservationId: reservation.id, format, teeSetId, createdAt: now } }, 201, { 'cache-control': 'private, no-store' });
+}
+
 async function getGolferMembershipPlans(): Promise<Response> {
   return json({
     plans: golferPlans.map((plan) => ({
@@ -1199,6 +1270,10 @@ export default {
       response = await getOperatorPlans(env);
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tee-times\/import$/) && request.method === 'POST') {
       response = await importTeeTimes(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/tee-time-activations\/[^/]+\/claim$/) && request.method === 'POST') {
+      response = await claimTeeTimeSlot(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/tee-time-activations\/[^/]+\/start-round$/) && request.method === 'POST') {
+      response = await startTeeTimeRound(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname === '/api/v1/golfer-membership-plans' && request.method === 'GET') {
       response = await getGolferMembershipPlans();
     } else if (url.pathname === '/api/v1/stripe/webhook' && request.method === 'POST') {
