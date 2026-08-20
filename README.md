@@ -18,6 +18,7 @@ The product is not a replacement for GHIN, a governing body, a bookmaker, or a c
 - `/network/` — golfer/course/physical-graph network view
 - `/events/state-of-stick-invitational/` — event identity and live leaderboard concept
 - `/league/anywhere/` — portable multi-course season and shared standings
+- `/discover/` — provider-neutral course discovery with map and list views
 - `/pitch/` — plain-language owner brief for the golf vertical
 
 ## Build boundary
@@ -37,6 +38,10 @@ The golf network is designed to feel national before it depends on paid infrastr
 Pending rounds use browser IndexedDB for offline score entry, tap verification, witness confirmation, retry, and duplicate-safe sync. No secrets are stored there. Deterministic round summaries and warnings are generated only from supplied scores and course data; trusted facts, suggestions, and unverified observations remain visibly separate.
 
 Public course discovery and approved map, imagery, and StickLink reads are exposed by the existing Worker API. Write routes remain authenticated. Geometry is operator-approved context and never replaces official scoring, handicap, yardage, or league records. See [`docs/map-architecture.md`](docs/map-architecture.md) for attribution, licensing, and the future satellite-provider boundary.
+
+## Phase 2 network foundation
+
+The State of Stick Golf Network adds a derived player passport, explicit round verification events and audit history, public/private weekly or seasonal leagues, operator-seeded course discovery, organization-scoped operator actions, announcements, and D1-backed standings with Durable Object live-event overlays. The API keeps D1 authoritative when live coordination is cold. See [`docs/network-model.md`](docs/network-model.md), [`docs/league-rules.md`](docs/league-rules.md), and [`docs/migrations.md`](docs/migrations.md).
 
 ## Implementation plan
 

@@ -1,0 +1,16 @@
+---
+import Layout from '../../layouts/Layout.astro';
+const courses = [
+  { id: 'cedar-ridge', name: 'Cedar Ridge Golf Club', state: 'MI', difficulty: 'Challenging', leagues: 1, taps: 22, lat: 44.7412, lon: -85.9742 },
+  { id: 'bedford-valley', name: 'Bedford Valley Golf Club', state: 'MI', difficulty: 'Moderate', leagues: 1, taps: 22, lat: 42.3275, lon: -85.4930 },
+  { id: 'arcadia-bluffs', name: 'Arcadia Bluffs', state: 'MI', difficulty: 'Challenging', leagues: 1, taps: 20, lat: 44.8451, lon: -86.0587 },
+  { id: 'briar-hill', name: 'Briar Hill Golf Club', state: 'MI', difficulty: 'Moderate', leagues: 1, taps: 19, lat: 42.4100, lon: -83.5200 },
+];
+---
+<Layout title="Discover Courses — StickLink Golf" description="Find State of Stick courses, active leagues, and connected StickLink locations." eyebrow="COURSE DISCOVERY / STATE OF STICK NETWORK">
+  <section class="page shell"><div class="eyebrow">YOUR NEXT FAIRWAY</div><h1>Courses to conquer.</h1><p class="page-lead">Find State of Stick courses, active leagues, and physical StickLink moments. Coordinates are explicitly seeded by course operators; no paid geocoder is required.</p>
+    <div class="discovery-filters"><label>State<select><option>All states</option><option>Michigan</option></select></label><label>Difficulty<select><option>Any difficulty</option><option>Moderate</option><option>Challenging</option></select></label><label>League activity<select><option>All courses</option><option>Active leagues</option></select></label><button class="button" type="button">Apply filters</button></div>
+    <div class="discovery-layout"><div class="discovery-map" aria-label="Provider-neutral course discovery map"><div class="discovery-map-title">STATE OF STICK COURSES <span>OPERATOR-SEEDED LOCATIONS</span></div>{courses.map((course, index) => <a class={`discovery-pin pin-${index + 1}`} href={`/course/${course.id}/`} title={course.name}><b>{index + 1}</b><span>{course.name}</span></a>)}<div class="discovery-map-footer">Map view · no commercial map key · coordinates are course data</div></div><div class="discovery-list">{courses.map((course) => <article class="discovery-card"><div><span class="eyebrow">{course.state} · {course.difficulty}</span><h2>{course.name}</h2><p>{course.leagues ? 'Active Great Lakes Open league' : 'Open network course'} · {course.taps} StickLink locations</p><small>Location source: operator-seeded coordinates · {course.lat.toFixed(4)}, {course.lon.toFixed(4)}</small></div><a class="text-link" href={`/course/${course.id}/`}>Open course ↗</a></article>)}</div></div>
+    <div class="source-note"><strong>DISCOVERY RULE</strong><span>Public course facts, active league labels, and StickLink counts are network records. Player location is never required to browse, and recently played courses are only returned for the requesting golfer.</span></div>
+  </section>
+</Layout>

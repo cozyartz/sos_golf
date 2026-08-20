@@ -30,6 +30,17 @@ The API currently exposes:
 - `GET /api/v1/rounds/:roundId`
 - `GET /api/v1/live/rounds/:roundId`
 - `POST /api/v1/rounds`
+- `GET /api/v1/players/:personId/passport`
+- `GET /api/v1/courses?state=MI&difficulty=moderate&leagueActive=true&page=1&pageSize=20`
+- `GET /api/v1/courses/:courseId/announcements`
+- `GET /api/v1/leagues/:leagueId`
+- `GET /api/v1/leagues/:leagueId/live`
+- `POST /api/v1/leagues/:leagueId/enroll`
+- `POST /api/v1/rounds/:roundId/verification`
+- `POST /api/v1/courses/:courseId/operator-review`
+- `POST /api/v1/courses/:courseId/operator-profile`
+- `POST /api/v1/courses/:courseId/announcements`
+- `POST /api/v1/leagues`
 
 Round creation requires `Authorization: Bearer <GOLF_WRITE_TOKEN>`. This is a
 temporary service-auth seam for the persistent pilot. It is not the final
