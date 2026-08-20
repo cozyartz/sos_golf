@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decideGolferAccess, golferPlans, planFor, planHasFeature } from '../src/lib/membership.ts';
+import { isTeeTimePlayerCount, isTeeTimeSource, isTeeTimeStatus } from '../src/lib/tee-times.ts';
 
 test('network membership keeps basic play available without paid features', () => {
   const plan = planFor('network_member');
@@ -29,4 +30,13 @@ test('AI allowance fails closed when the monthly allowance is reached', () => {
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'allowance_reached');
   assert.equal(decision.remainingAiQuestions, 0);
+});
+
+test('tee-time import accepts bounded source values and statuses', () => {
+  assert.equal(isTeeTimeSource('Existing Tee Sheet'), true);
+  assert.equal(isTeeTimeSource(''), false);
+  assert.equal(isTeeTimePlayerCount(4), true);
+  assert.equal(isTeeTimePlayerCount(9), false);
+  assert.equal(isTeeTimeStatus('reserved'), true);
+  assert.equal(isTeeTimeStatus('booked'), false);
 });

@@ -7,6 +7,7 @@ import { calculateHandicapStableford, calculateProvisionalCourseHandicap, resolv
 import { createOperatorCheckout, stripeObjectString, verifyStripeWebhook, type StripeEvent } from './stripe';
 import { platformEventStatement } from './platform';
 import { golferPlans } from '../../src/lib/membership';
+import { isTeeTimePlayerCount, isTeeTimeSource, isTeeTimeStatus, type TeeTimeStatus } from '../../src/lib/tee-times';
 
 type JsonObject = Record<string, unknown>;
 
@@ -103,6 +104,18 @@ function getWriteToken(env: Env): string | undefined {
 function getEnvString(env: Env, key: string): string | undefined {
   const value = Reflect.get(env, key);
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function randomActivationToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+}
+
+async function hashActivationToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function stripeEnv(env: Env): { STRIPE_SECRET_KEY?: string; STRIPE_WEBHOOK_SECRET?: string } {
@@ -255,6 +268,56 @@ async function getOperatorPlans(env: Env): Promise<Response> {
     { key: 'network_course', name: 'Network Course', billing: 'free', priceDisplay: '$0', description: 'Public course presence, approved facts, league participation, and golfer discovery.' },
     { key: 'connected_course', name: 'Connected Course', billing: 'subscription', priceDisplay: '$249–$499/month proposed pilot range', implementationDisplay: '$500–$2,500 proposed setup range', checkoutConfigured: Boolean(getEnvString(env, 'GOLF_CONNECTED_COURSE_PRICE_ID')), description: 'Tap and QR touchpoints, service requests, Golf Agent, and operator analytics.' },
   ], pricingStatus: 'proposed_test_ranges', sourceBoundary: 'Stripe price and entitlement state are server-controlled. The browser never selects a price amount.' });
+}
+
+async function importTeeTimes(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id');
+  const actorId = request.headers.get('x-state-of-stick-person-id');
+  if (!organizationId || !actorId || !isValidPersonId(actorId)) return error('Organization and actor identity are required.', 400, 'INVALID_INPUT');
+  if (!isValidId(courseId)) return error('Course id is invalid.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first();
+  if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  if (!isTeeTimeSource(body.sourceSystem) || !Array.isArray(body.reservations) || body.reservations.length < 1 || body.reservations.length > 100) return error('sourceSystem and 1 to 100 reservations are required.', 400, 'INVALID_INPUT');
+  const sourceSystem = body.sourceSystem.trim();
+  const importedAt = new Date().toISOString();
+  const imported: Array<Record<string, unknown>> = [];
+  for (const candidate of body.reservations) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return error('Each reservation must be an object.', 400, 'INVALID_INPUT');
+    const reservation = candidate as Record<string, unknown>;
+    const externalId = typeof reservation.externalReservationId === 'string' ? reservation.externalReservationId.trim() : '';
+    const startsAt = typeof reservation.startsAt === 'string' ? reservation.startsAt.trim() : '';
+    const playerCount = reservation.playerCount;
+    const status = reservation.status ?? 'reserved';
+    const bookingUrl = reservation.bookingUrl;
+    if (!externalId || externalId.length > 160 || !startsAt || Number.isNaN(Date.parse(startsAt)) || !isTeeTimePlayerCount(playerCount) || !isTeeTimeStatus(status)) return error('Each reservation requires a valid externalReservationId, startsAt, playerCount, and status.', 400, 'INVALID_INPUT');
+    if (bookingUrl !== undefined && (typeof bookingUrl !== 'string' || bookingUrl.length > 500 || !/^https:\/\//i.test(bookingUrl))) return error('bookingUrl must be an HTTPS URL.', 400, 'INVALID_INPUT');
+    const existing = await env.DB.prepare('SELECT id, activation_token_hash FROM golf_tee_time_reservations WHERE course_id = ?1 AND source_system = ?2 AND external_reservation_id = ?3').bind(courseId, sourceSystem, externalId).first<{ id: string; activation_token_hash: string }>();
+    const id = existing?.id ?? `tee-${crypto.randomUUID()}`;
+    const token = existing ? undefined : randomActivationToken();
+    const tokenHash = existing?.activation_token_hash ?? await hashActivationToken(token as string);
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO golf_tee_time_reservations (id, course_id, organization_id, source_system, external_reservation_id, starts_at, player_count, status, booking_url, activation_token_hash, activation_expires_at, imported_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
+        ON CONFLICT(course_id, source_system, external_reservation_id) DO UPDATE SET starts_at = excluded.starts_at, player_count = excluded.player_count, status = excluded.status, booking_url = excluded.booking_url, imported_at = excluded.imported_at, updated_at = excluded.updated_at`).bind(id, courseId, organizationId, sourceSystem, externalId, new Date(startsAt).toISOString(), playerCount, status, typeof bookingUrl === 'string' ? bookingUrl : null, tokenHash, new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString(), importedAt),
+      env.DB.prepare(`INSERT INTO golf_tee_time_events (id, reservation_id, organization_id, actor_person_id, event_type, details_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`).bind(`tee-event-${crypto.randomUUID()}`, id, organizationId, actorId, existing ? 'updated' : 'imported', JSON.stringify({ sourceSystem, externalReservationId: externalId, status }), importedAt),
+    ]);
+    imported.push({ id, externalReservationId: externalId, startsAt: new Date(startsAt).toISOString(), playerCount, status, activationUrl: token ? `${env.PUBLIC_ORIGIN}/api/v1/public/tee-time-activations/${token}` : undefined, activationUrlIssued: Boolean(token) });
+  }
+  return json({ teeTimes: imported, sourceBoundary: 'Imported reservation references only. The external tee sheet remains authoritative for availability, price, payment, and reservation validity.' }, 201);
+}
+
+async function getTeeTimeActivation(env: Env, token: string): Promise<Response> {
+  if (!/^[A-Za-z0-9_-]{24,80}$/.test(token)) return error('Activation token is invalid.', 400, 'INVALID_INPUT');
+  const tokenHash = await hashActivationToken(token);
+  const reservation = await env.DB.prepare(`SELECT r.id, r.course_id, r.starts_at, r.player_count, r.status, r.booking_url, r.activation_expires_at, c.name AS course_name, c.region AS course_region
+    FROM golf_tee_time_reservations r JOIN golf_courses c ON c.id = r.course_id
+    WHERE r.activation_token_hash = ?1`).bind(tokenHash).first<{ id: string; course_id: string; starts_at: string; player_count: number; status: TeeTimeStatus; booking_url: string | null; activation_expires_at: string | null; course_name: string; course_region: string | null }>();
+  if (!reservation) return error('Tee-time activation was not found.', 404, 'NOT_FOUND');
+  if (reservation.activation_expires_at && Date.parse(reservation.activation_expires_at) < Date.now()) return error('Tee-time activation has expired.', 410, 'ACTIVATION_EXPIRED');
+  if (reservation.status === 'cancelled' || reservation.status === 'no_show') return error('This tee time is no longer active.', 410, 'TEE_TIME_INACTIVE');
+  return json({ activation: { reservationId: reservation.id, course: { id: reservation.course_id, name: reservation.course_name, region: reservation.course_region }, startsAt: reservation.starts_at, playerCount: reservation.player_count, status: reservation.status, bookingUrl: reservation.booking_url, nextStep: 'authenticated_golfer_claim_required' }, privacy: 'No golfer names, contact details, payment details, or external reservation identifiers are exposed.' }, 200, { 'cache-control': 'private, no-store' });
 }
 
 async function getGolferMembershipPlans(): Promise<Response> {
@@ -1127,12 +1190,15 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin'), env) });
     if (url.pathname === '/health' && request.method === 'GET') return withCors(json({ ok: true, service: 'sticklink-golf-api', environment: env.ENVIRONMENT }), request, env);
     if (url.pathname.match(/^\/api\/v1\/public\/courses\/[^/]+$/) && request.method === 'GET') return withCors(await getPublicCourseProfile(env, url.pathname.split('/')[5] ?? ''), request, env);
+    if (url.pathname.match(/^\/api\/v1\/public\/tee-time-activations\/[^/]+$/) && request.method === 'GET') return withCors(await getTeeTimeActivation(env, url.pathname.split('/')[6] ?? ''), request, env);
     if (url.pathname.match(/^\/api\/v1\/taps\/[^/]+$/) && request.method === 'GET') return withCors(await resolveTap(env, url.pathname.split('/')[4] ?? ''), request, env);
     if (!url.pathname.startsWith('/api/v1/')) return withCors(error('Not found.', 404, 'NOT_FOUND'), request, env);
 
     let response: Response;
     if (url.pathname === '/api/v1/operator-plans' && request.method === 'GET') {
       response = await getOperatorPlans(env);
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tee-times\/import$/) && request.method === 'POST') {
+      response = await importTeeTimes(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname === '/api/v1/golfer-membership-plans' && request.method === 'GET') {
       response = await getGolferMembershipPlans();
     } else if (url.pathname === '/api/v1/stripe/webhook' && request.method === 'POST') {
