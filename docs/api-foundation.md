@@ -75,17 +75,19 @@ The API currently exposes:
 - `POST /api/v1/courses/:courseId/tap-points/:tapPointId/status`
 - `POST /api/v1/courses/:courseId/tap-events`
 
-Round creation requires `Authorization: Bearer <GOLF_WRITE_TOKEN>`. This is a
-temporary service-auth seam for the persistent pilot. It is not the final
-golfer identity system. Before production golfer writes are enabled, replace it
-with a verified State of Stick identity and organization-membership check.
+Local development may use `Authorization: Bearer <GOLF_WRITE_TOKEN>` as a
+temporary service-auth seam. Production writes require a verified State of
+Stick identity assertion and the applicable organization or golfer boundary;
+the browser must never receive or supply the production write token. The
+temporary token path is not the production golfer identity system.
 
 Service catalog reads expose only active, published operator services. Service
-catalog writes and request status changes require the operator organization and
-actor headers. A golfer service request requires the temporary write token plus
-the requesting golfer identity. The current slice records requests and
-fulfillment status but does not charge a card, settle funds, or claim a POS
-integration; those remain State of Stick commerce boundaries.
+catalog writes and request status changes require verified organization
+membership and the applicable operator role. A golfer service request requires
+a verified golfer identity; local development may use the temporary write
+token seam. The current slice records requests and fulfillment status but does
+not charge a card, settle funds, or claim a POS integration; those remain State
+of Stick commerce boundaries.
 
 Connected Course billing uses Stripe Checkout in subscription mode only when
 the server-side `GOLF_CONNECTED_COURSE_PRICE_ID` is configured. The browser
@@ -118,8 +120,9 @@ invent facts or perform a consequential action.
 The production D1 database and Worker binding are provisioned in the
 Techflunky Cloudflare account. Migration `0001_golf_foundation.sql` has been
 applied to database `sticklink-golf`, and the production Worker
-`sticklink-golf-api-production` is deployed with `GOLF_WRITE_TOKEN` stored as
-a Cloudflare secret.
+`sticklink-golf-api-production` uses Cloudflare-managed secrets and verified
+State of Stick identity assertions for production authorization. Secret names
+and values must remain outside this repository.
 
 The intended production shape is:
 
