@@ -1003,6 +1003,28 @@ async function saveRoundScores(request: Request, env: Env, roundId: string): Pro
   return json({ round: { id: roundId, status: round.status, scores: saved.results }, acknowledgedClientEventId: clientEventId });
 }
 
+async function submitRound(request: Request, env: Env, roundId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env);
+  if (authError) return authError;
+  if (!/^round-[a-zA-Z0-9-]{8,100}$/.test(roundId)) return error('Round id is invalid.', 400, 'INVALID_INPUT');
+  const personId = request.headers.get('x-state-of-stick-person-id');
+  if (!personId || !isValidPersonId(personId)) return error('A verified golfer identity is required.', 400, 'PLAYER_IDENTITY_REQUIRED');
+  const round = await env.DB.prepare('SELECT id, course_id, status, format, state_of_stick_organization_id FROM golf_rounds WHERE id = ?1 AND state_of_stick_person_id = ?2').bind(roundId, personId).first<{ id: string; course_id: string; status: string; format: string; state_of_stick_organization_id: string | null }>();
+  if (!round) return error('Round not found.', 404, 'NOT_FOUND');
+  if (round.status === 'submitted') return json({ round: { id: roundId, status: 'submitted' }, deduplicated: true });
+  if (!['open', 'in_progress'].includes(round.status)) return error('This round cannot be submitted from its current status.', 409, 'ROUND_NOT_SUBMITTABLE');
+  const scoreCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM golf_hole_scores WHERE round_id = ?1').bind(roundId).first<{ count: number }>();
+  if (Number(scoreCount?.count ?? 0) !== 18) return error('All 18 holes must be recorded before submitting the round.', 409, 'ROUND_INCOMPLETE');
+  const body = await readJson(request);
+  if (body instanceof Response) return body;
+  const clientEventId = typeof body.clientEventId === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,120}$/.test(body.clientEventId) ? body.clientEventId : crypto.randomUUID();
+  const now = new Date().toISOString();
+  const statements: D1PreparedStatement[] = [env.DB.prepare('UPDATE golf_rounds SET status = \'submitted\', updated_at = ?1 WHERE id = ?2 AND status IN (\'open\', \'in_progress\')').bind(now, roundId)];
+  if (round.state_of_stick_organization_id) statements.push(platformEventStatement(env.DB, { eventId: `platform-${roundId}-submitted-${clientEventId}`, eventName: 'golf.round_submitted', organizationId: round.state_of_stick_organization_id, courseId: round.course_id, aggregateType: 'round', aggregateId: roundId, occurredAt: now, payload: { format: round.format, scoreCount: 18, personId, clientEventId } }));
+  await env.DB.batch(statements);
+  return json({ round: { id: roundId, status: 'submitted', courseId: round.course_id, format: round.format }, acknowledgedClientEventId: clientEventId });
+}
+
 async function enrollInLeague(request: Request, env: Env, leagueId: string): Promise<Response> {
   const authError = requireWriteAccess(request, env);
   if (authError) return authError;
@@ -1558,6 +1580,8 @@ export default {
       response = await startRound(request, env);
     } else if (url.pathname.match(/^\/api\/v1\/rounds\/[^/]+\/scores$/) && request.method === 'POST') {
       response = await saveRoundScores(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/rounds\/[^/]+\/submit$/) && request.method === 'POST') {
+      response = await submitRound(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname === '/api/v1/rounds' && request.method === 'POST') {
       response = await createRound(request, env);
     } else if (url.pathname.startsWith('/api/v1/rounds/') && request.method === 'GET') {
