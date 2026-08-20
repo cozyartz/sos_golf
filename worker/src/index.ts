@@ -314,6 +314,7 @@ async function updateTeeTimeStatus(request: Request, env: Env, teeTimeId: string
     env.DB.prepare('UPDATE golf_tee_time_reservations SET status = ?1, updated_at = ?2 WHERE id = ?3 AND organization_id = ?4').bind(body.status, now, teeTimeId, organizationId),
     env.DB.prepare(`INSERT INTO golf_tee_time_events (id, reservation_id, organization_id, actor_person_id, event_type, details_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`).bind(`tee-event-${crypto.randomUUID()}`, teeTimeId, organizationId, actorId, body.status === 'activated' ? 'activated' : body.status, JSON.stringify({ from: current.status, to: body.status, note }), now),
     env.DB.prepare(`INSERT INTO golf_operator_audit_events (id, organization_id, course_id, actor_person_id, action, entity_type, entity_id, details_json, created_at) VALUES (?1, ?2, ?3, ?4, 'status_change', 'tee_time', ?5, ?6, ?7)`).bind(`op-${crypto.randomUUID()}`, organizationId, current.course_id, actorId, teeTimeId, JSON.stringify({ from: current.status, to: body.status, note }), now),
+    platformEventStatement(env.DB, { eventId: `platform-${teeTimeId}-${now}`, eventName: 'golf.tee_time_status_changed', organizationId, courseId: current.course_id, aggregateType: 'tee_time', aggregateId: teeTimeId, occurredAt: now, payload: { from: current.status, to: body.status, hasNote: Boolean(note) } }),
   ]);
   return json({ teeTime: { id: teeTimeId, courseId: current.course_id, status: body.status, updatedAt: now } });
 }
@@ -1060,6 +1061,7 @@ async function updateServiceRequest(request: Request, env: Env, requestId: strin
     env.DB.prepare('UPDATE golf_service_requests SET status = ?1, updated_at = ?2 WHERE id = ?3 AND organization_id = ?4').bind(nextStatus, now, requestId, organizationId),
     env.DB.prepare(`INSERT INTO golf_service_request_events (id, request_id, organization_id, actor_person_id, from_status, to_status, note, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`).bind(`service-event-${crypto.randomUUID()}`, requestId, organizationId, actorId, current.status, nextStatus, note, now),
     env.DB.prepare(`INSERT INTO golf_operator_audit_events (id, organization_id, course_id, actor_person_id, action, entity_type, entity_id, details_json, created_at) VALUES (?1, ?2, ?3, ?4, 'status_change', 'service_request', ?5, ?6, ?7)`).bind(`op-${crypto.randomUUID()}`, organizationId, current.course_id, actorId, requestId, JSON.stringify({ from: current.status, to: nextStatus }), now),
+    platformEventStatement(env.DB, { eventId: `platform-${requestId}-${now}`, eventName: 'golf.service_status_changed', organizationId, courseId: current.course_id, aggregateType: 'service_request', aggregateId: requestId, occurredAt: now, payload: { from: current.status, to: nextStatus, hasNote: Boolean(note) } }),
   ]);
   return json({ request: { id: requestId, status: nextStatus, updatedAt: now } });
 }

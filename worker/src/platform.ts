@@ -5,6 +5,8 @@ export type GolfPlatformEventName =
   | 'golf.round_submitted'
   | 'golf.tap_interaction'
   | 'golf.service_requested'
+  | 'golf.service_status_changed'
+  | 'golf.tee_time_status_changed'
   | 'golf.course_published'
   | 'golf.course_unpublished';
 
