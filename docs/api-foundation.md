@@ -57,6 +57,9 @@ The API currently exposes:
 - `POST /api/v1/course-claims`
 - `GET /api/v1/course-claims`
 - `POST /api/v1/course-claims/:claimId/review`
+- `GET /api/v1/operator-plans`
+- `POST /api/v1/courses/:courseId/billing/checkout`
+- `POST /api/v1/stripe/webhook`
 - `POST /api/v1/assistant`
 - `POST /api/v1/intelligence/:insightId/feedback`
 - `GET /api/v1/courses/:courseId/knowledge`
@@ -80,6 +83,15 @@ actor headers. A golfer service request requires the temporary write token plus
 the requesting golfer identity. The current slice records requests and
 fulfillment status but does not charge a card, settle funds, or claim a POS
 integration; those remain State of Stick commerce boundaries.
+
+Connected Course billing uses Stripe Checkout in subscription mode only when
+the server-side `GOLF_CONNECTED_COURSE_PRICE_ID` is configured. The browser
+cannot choose a price or amount. `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET` remain Cloudflare secrets. The golf Worker stores only
+Stripe references, verified billing events, and course entitlements; Stripe is
+the payment system of record. Configure Stripe to send events to
+`golf-api.stateofstick.co/api/v1/stripe/webhook`; webhook events are the only
+path that activates or removes the Connected Course entitlement.
 
 Course knowledge writes are operator-scoped. Only published knowledge records
 are available to the course assistant, and every record keeps its source and

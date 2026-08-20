@@ -4,6 +4,7 @@ import { classifyCourseQuestion, deterministicIntelligence, type IntelligenceFac
 import { buildGolfAgentPrompt, extractGolfAgentText } from '../../src/lib/agent';
 import { calculateServiceTotal, canTransitionServiceRequest, type GolfServiceType, type ServiceRequestStatus } from '../../src/lib/services';
 import { calculateHandicapStableford, calculateProvisionalCourseHandicap, resolveCompetition, type CompetitionFormat } from '../../src/lib/competition';
+import { createOperatorCheckout, stripeObjectString, verifyStripeWebhook, type StripeEvent } from './stripe';
 
 type JsonObject = Record<string, unknown>;
 
@@ -95,6 +96,15 @@ function isValidGeometryJson(value: unknown): boolean {
 function getWriteToken(env: Env): string | undefined {
   const value = Reflect.get(env, 'GOLF_WRITE_TOKEN');
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function getEnvString(env: Env, key: string): string | undefined {
+  const value = Reflect.get(env, key);
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function stripeEnv(env: Env): { STRIPE_SECRET_KEY?: string; STRIPE_WEBHOOK_SECRET?: string } {
+  return { STRIPE_SECRET_KEY: getEnvString(env, 'STRIPE_SECRET_KEY'), STRIPE_WEBHOOK_SECRET: getEnvString(env, 'STRIPE_WEBHOOK_SECRET') };
 }
 
 function requireWriteAccess(request: Request, env: Env): Response | null {
@@ -233,6 +243,92 @@ async function reviewCourseClaim(request: Request, env: Env, claimId: string): P
     env.DB.prepare(`INSERT INTO golf_operator_audit_events (id, organization_id, course_id, actor_person_id, action, entity_type, entity_id, details_json, created_at) VALUES (?1, ?2, ?3, ?4, 'review', 'course_claim', ?5, ?6, ?7)`).bind(`op-${crypto.randomUUID()}`, organizationId, claim.course_id, actorId, claimId, JSON.stringify({ status: body.status, note }), now),
   ]);
   return json({ claim: { id: claimId, status: body.status, reviewedAt: now, publishing: 'separate_explicit_course_publication_step' } });
+}
+
+async function getOperatorPlans(env: Env): Promise<Response> {
+  return json({ plans: [
+    { key: 'network_course', name: 'Network Course', billing: 'free', description: 'Public course presence, approved facts, league participation, and golfer discovery.' },
+    { key: 'connected_course', name: 'Connected Course', billing: 'subscription', checkoutConfigured: Boolean(getEnvString(env, 'GOLF_CONNECTED_COURSE_PRICE_ID')), description: 'Tap and QR touchpoints, service requests, Golf Agent, and operator analytics.' },
+  ], sourceBoundary: 'Stripe price and entitlement state are server-controlled. The browser never selects a price amount.' });
+}
+
+async function createOperatorBillingCheckout(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id'); const actorId = request.headers.get('x-state-of-stick-person-id');
+  if (!organizationId || !actorId || !isValidPersonId(actorId)) return error('Organization and actor identity are required.', 400, 'INVALID_INPUT');
+  if (!isValidId(courseId)) return error('Course id is invalid.', 400, 'INVALID_INPUT');
+  const priceId = getEnvString(env, 'GOLF_CONNECTED_COURSE_PRICE_ID');
+  if (!priceId) return error('Connected Course billing is not configured yet.', 503, 'BILLING_NOT_CONFIGURED');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('A valid billing email is required.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first();
+  if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const existing = await env.DB.prepare("SELECT id, status FROM golf_billing_accounts WHERE course_id = ?1 AND plan_key = 'connected_course'").bind(courseId).first<{ id: string; status: string }>();
+  if (existing?.status === 'active') return error('Connected Course is already active for this course.', 409, 'BILLING_ACTIVE');
+  const billingId = existing?.id ?? `billing-${courseId}-connected-course`; const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO golf_billing_accounts (id, course_id, organization_id, plan_key, status, created_at, updated_at)
+    VALUES (?1, ?2, ?3, 'connected_course', 'pending', ?4, ?4)
+    ON CONFLICT(course_id, plan_key) DO UPDATE SET organization_id = excluded.organization_id, status = 'pending', updated_at = excluded.updated_at`).bind(billingId, courseId, organizationId, now).run();
+  try {
+    const origin = env.PUBLIC_ORIGIN;
+    const session = await createOperatorCheckout(stripeEnv(env), { priceId, courseId, organizationId, customerEmail: email || undefined, successUrl: `${origin}/operator/onboard/?billing=success&course=${encodeURIComponent(courseId)}`, cancelUrl: `${origin}/operator/onboard/?billing=cancelled&course=${encodeURIComponent(courseId)}`, idempotencyKey: `golf-connected-course-${billingId}` });
+    if (!session.url) throw new Error('Stripe did not return a checkout URL.');
+    return json({ checkoutUrl: session.url, billing: { id: billingId, planKey: 'connected_course', status: 'pending', paymentSystem: 'stripe' } });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : 'Unable to create Stripe checkout.';
+    await env.DB.prepare("UPDATE golf_billing_accounts SET status = 'incomplete', updated_at = ?1 WHERE id = ?2").bind(new Date().toISOString(), billingId).run();
+    console.error('[golf stripe checkout]', cause);
+    return error(message, 502, 'BILLING_CHECKOUT_FAILED');
+  }
+}
+
+async function applyGolfSubscriptionEvent(env: Env, event: StripeEvent): Promise<void> {
+  const object = event.data.object;
+  const metadata = object.metadata && typeof object.metadata === 'object' ? object.metadata as Record<string, unknown> : {};
+  const purpose = typeof metadata.purpose === 'string' ? metadata.purpose : '';
+  const courseId = typeof metadata.course_id === 'string' ? metadata.course_id : null;
+  const organizationId = typeof metadata.organization_id === 'string' ? metadata.organization_id : null;
+  const subscriptionId = event.type === 'checkout.session.completed' ? stripeObjectString(object, 'subscription') : stripeObjectString(object, 'id');
+  if (purpose !== 'golf_connected_course' && !subscriptionId) return;
+  if (event.type === 'checkout.session.completed') {
+    if (!courseId || !organizationId || !subscriptionId) return;
+    const customerId = stripeObjectString(object, 'customer'); const now = new Date().toISOString(); const billingId = `billing-${courseId}-connected-course`;
+    await env.DB.prepare(`INSERT INTO golf_billing_accounts (id, course_id, organization_id, stripe_customer_id, stripe_subscription_id, plan_key, status, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, 'connected_course', 'active', ?6, ?6)
+      ON CONFLICT(course_id, plan_key) DO UPDATE SET stripe_customer_id = excluded.stripe_customer_id, stripe_subscription_id = excluded.stripe_subscription_id, status = 'active', updated_at = excluded.updated_at`).bind(billingId, courseId, organizationId, customerId, subscriptionId, now).run();
+    await env.DB.prepare(`INSERT INTO golf_entitlements (id, organization_id, course_id, entitlement_key, status, source_billing_account_id, created_at, updated_at)
+      VALUES (?1, ?2, ?3, 'connected_course', 'active', ?4, ?5, ?5)
+      ON CONFLICT(course_id, entitlement_key) DO UPDATE SET organization_id = excluded.organization_id, status = 'active', source_billing_account_id = excluded.source_billing_account_id, updated_at = excluded.updated_at`).bind(`entitlement-${courseId}-connected-course`, organizationId, courseId, billingId, now).run();
+    return;
+  }
+  if (!subscriptionId) return;
+  const status = event.type === 'customer.subscription.deleted' ? 'cancelled' : (typeof object.status === 'string' && ['active', 'past_due', 'incomplete', 'cancelled'].includes(object.status) ? object.status : 'incomplete');
+  const now = new Date().toISOString();
+  const account = await env.DB.prepare('SELECT id, course_id, organization_id FROM golf_billing_accounts WHERE stripe_subscription_id = ?1').bind(subscriptionId).first<{ id: string; course_id: string; organization_id: string }>();
+  if (!account) return;
+  await env.DB.batch([
+    env.DB.prepare('UPDATE golf_billing_accounts SET status = ?1, updated_at = ?2 WHERE stripe_subscription_id = ?3').bind(status, now, subscriptionId),
+    env.DB.prepare("UPDATE golf_entitlements SET status = ?1, updated_at = ?2 WHERE course_id = ?3 AND entitlement_key = 'connected_course'").bind(status === 'active' ? 'active' : 'inactive', now, account.course_id),
+  ]);
+}
+
+async function handleGolfStripeWebhook(request: Request, env: Env): Promise<Response> {
+  const rawBody = await request.text();
+  let event: StripeEvent;
+  try { event = await verifyStripeWebhook(stripeEnv(env), rawBody, request.headers.get('stripe-signature')); } catch (cause) { console.error('[golf stripe webhook verification]', cause); return error('Invalid Stripe webhook.', 400, 'INVALID_WEBHOOK'); }
+  const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO golf_billing_events (event_id, event_type, subscription_id, payload_json, processing_status, received_at) VALUES (?1, ?2, ?3, ?4, 'received', ?5)`).bind(event.id, event.type, stripeObjectString(event.data.object, 'subscription') ?? stripeObjectString(event.data.object, 'id'), rawBody, new Date().toISOString()).run();
+  if (!inserted.meta.changes) return json({ ok: true, duplicate: true });
+  try {
+    await applyGolfSubscriptionEvent(env, event);
+    await env.DB.prepare("UPDATE golf_billing_events SET processing_status = 'processed', processed_at = ?1 WHERE event_id = ?2").bind(new Date().toISOString(), event.id).run();
+    return json({ ok: true });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : 'Stripe event processing failed.';
+    await env.DB.prepare("UPDATE golf_billing_events SET processing_status = 'failed', last_error = ?1 WHERE event_id = ?2").bind(message.slice(0, 1000), event.id).run();
+    console.error('[golf stripe webhook]', cause);
+    return error('Stripe event processing failed.', 500, 'WEBHOOK_PROCESSING_FAILED');
+  }
 }
 
 async function answerAssistant(request: Request, env: Env): Promise<Response> {
@@ -947,7 +1043,13 @@ export default {
     if (!url.pathname.startsWith('/api/v1/')) return withCors(error('Not found.', 404, 'NOT_FOUND'), request, env);
 
     let response: Response;
-    if (url.pathname === '/api/v1/courses' && request.method === 'GET') {
+    if (url.pathname === '/api/v1/operator-plans' && request.method === 'GET') {
+      response = await getOperatorPlans(env);
+    } else if (url.pathname === '/api/v1/stripe/webhook' && request.method === 'POST') {
+      response = await handleGolfStripeWebhook(request, env);
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/billing\/checkout$/) && request.method === 'POST') {
+      response = await createOperatorBillingCheckout(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname === '/api/v1/courses' && request.method === 'GET') {
       response = await discoverCourses(env, request);
     } else if (url.pathname.match(/^\/api\/v1\/players\/[^/]+\/passport$/) && request.method === 'GET') {
       response = await getPassport(request, env, url.pathname.split('/')[4] ?? '');
