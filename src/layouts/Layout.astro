@@ -55,11 +55,16 @@ const isPitch = Astro.url.pathname === '/pitch' || Astro.url.pathname === '/pitc
       </nav> : <nav aria-label="Primary navigation">
         <a href="/round/cedar-ridge/">Play a round</a>
         <a href="/passport/">My passport</a>
-        <a href="/league/anywhere/">Play anywhere</a>
-        <a href="/network/">Network</a>
         <a href="/discover/">Discover</a>
-        <a href="/intelligence/">Round intelligence</a>
-        <a href="/pitch/">For course owners</a>
+        <details class="more-nav">
+          <summary>More</summary>
+          <div class="more-nav-menu">
+            <a href="/league/anywhere/">Play anywhere <span>↗</span></a>
+            <a href="/network/">Network <span>↗</span></a>
+            <a href="/intelligence/">Round intelligence <span>↗</span></a>
+            <a href="/pitch/">For course owners <span>↗</span></a>
+          </div>
+        </details>
       </nav>}
       {isPitch ? <a class="header-cta" href="#founding-partnership">Discuss partnership <span>↗</span></a> : <a class="profile-chip" href="/passport/" aria-label="View Andrea's golfer passport"><span class="avatar">AC</span><span>Andrea</span><span class="chevron">⌄</span></a>}
       {!isPitch && <details class="mobile-menu">

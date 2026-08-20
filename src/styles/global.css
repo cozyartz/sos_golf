@@ -56,12 +56,36 @@ nav { align-items:center; }
 .more-nav-menu { position:absolute; z-index:10; top:calc(100% + 14px); right:-12px; display:grid; min-width:180px; gap:0; padding:7px; border:1px solid var(--line); border-radius:9px; background:var(--card); box-shadow:var(--shadow); }
 .more-nav-menu a { padding:10px 11px; border-radius:5px; }
 .more-nav-menu a:hover { background:#edf0df; }
+.more-nav summary { cursor:pointer; list-style:none; }
+.more-nav summary::-webkit-details-marker { display:none; }
+.more-nav[open] summary { color:var(--ink); }
+.more-nav-menu a { display:flex; justify-content:space-between; gap:18px; font-size:12px; white-space:nowrap; }
+.more-nav-menu a span { color:var(--orange); }
 .profile-chip:hover { border-color:var(--green); }
 .chevron { color:var(--muted); font-size:15px; }
 .button { transition:transform .2s ease,background .2s ease,border-color .2s ease; }
 .button:hover { transform:translateY(-2px); background:#193d2c; }
 .button.secondary:hover { background:#edf0df; border-color:#b8c4ae; }
 .mobile-menu { display:none; }
+
+.home-showcase { overflow:hidden; position:relative; padding:92px 0 42px; background:var(--ink); color:#f7f5eb; }
+.home-showcase::before { content:''; position:absolute; inset:0; opacity:.38; background-image:linear-gradient(rgba(210,232,107,.08) 1px, transparent 1px),linear-gradient(90deg, rgba(210,232,107,.08) 1px, transparent 1px); background-size:72px 72px; mask-image:linear-gradient(to bottom, transparent, #000 25%, #000 75%, transparent); pointer-events:none; }
+.showcase-inner { position:relative; }
+.showcase-heading { display:flex; justify-content:space-between; align-items:end; gap:32px; margin-bottom:34px; }
+.showcase-heading .eyebrow { color:var(--lime); }
+.showcase-heading h2 { max-width:650px; margin:0; font-size:clamp(40px,5.2vw,70px); line-height:.97; letter-spacing:-.07em; }
+.showcase-heading h2 em { color:var(--orange); font-style:normal; }
+.showcase-grid { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:12px; }
+.showcase-card { min-height:255px; display:flex; flex-direction:column; justify-content:space-between; padding:22px; border:1px solid #3d5548; border-radius:8px; background:#193d2c; }
+.showcase-card-featured { background:var(--lime); color:var(--green); border-color:var(--lime); }
+.showcase-index { color:var(--orange); font:10px 'DM Mono',monospace; letter-spacing:.12em; }
+.showcase-card-featured .showcase-index { color:var(--green); opacity:.72; }
+.showcase-card strong { display:block; max-width:280px; margin-bottom:9px; font-size:25px; letter-spacing:-.05em; }
+.showcase-card p { max-width:300px; margin:0; color:#b9c4b4; font-size:13px; line-height:1.55; }
+.showcase-card-featured p { color:#48634a; }
+.showcase-card .text-link { color:#f7f5eb; }
+.showcase-card-featured .text-link { color:var(--green); }
+.showcase-footer { display:flex; justify-content:space-between; gap:18px; padding-top:20px; margin-top:34px; border-top:1px solid #3d5548; color:#98a99c; font:9px 'DM Mono',monospace; letter-spacing:.11em; }
 
 @media (max-width:760px) {
   .site-header { position:relative; }
@@ -78,6 +102,16 @@ nav { align-items:center; }
   .mobile-menu nav a:hover { background:#edf0df; }
   .mobile-menu nav a span { color:var(--orange); }
   .site-header-pitch .mobile-menu { display:none; }
+}
+
+@media (max-width:760px) {
+  .more-nav { display:none; }
+  .showcase-heading { display:block; }
+  .showcase-heading h2 { margin-top:16px; font-size:48px; }
+  .home-showcase { padding-top:64px; }
+  .showcase-grid { grid-template-columns:1fr; }
+  .showcase-card { min-height:210px; }
+  .showcase-footer { display:grid; line-height:1.7; }
 }
 
 .league-hero { display:flex; justify-content:space-between; align-items:end; gap:28px; padding:30px; border-radius:13px; background:var(--green); color:#f7f5eb; }.league-hero h1 { margin:25px 0 10px; }.league-hero h1 em { color:var(--lime); font-style:normal; }.league-hero p { max-width:520px; margin:0 0 26px; color:#b9c4b4; line-height:1.6; }.league-hero .eyebrow { color:var(--lime); }.league-hero .button { background:var(--lime); border-color:var(--lime); color:var(--green); }.league-hero .button.secondary { background:transparent; border-color:#537361; color:#f7f5eb; }.league-token { min-width:190px; padding:18px; border:1px solid #537361; border-radius:9px; background:#193d2c; }.league-token span,.league-token small { display:block; color:#b9c4b4; font:10px 'DM Mono',monospace; letter-spacing:.1em; }.league-token b { display:block; margin:9px 0 12px; color:var(--lime); font:14px 'DM Mono',monospace; }.league-summary { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:18px 0; padding:18px; border:1px solid var(--line); border-radius:10px; background:var(--card); }.league-summary span,.league-summary small { display:block; color:var(--muted); font:10px 'DM Mono',monospace; }.league-summary b { display:block; margin:6px 0; font-size:25px; letter-spacing:-.06em; }.league-grid { display:grid; grid-template-columns:1.35fr .65fr; gap:18px; }.league-row { display:grid; grid-template-columns:48px 1fr 60px 65px; gap:12px; align-items:center; min-height:62px; border-top:1px solid var(--line); }.league-header { min-height:34px; border-top:0; color:var(--muted); font:10px 'DM Mono',monospace; }.league-rank { color:var(--orange); }.league-row strong,.league-row small { display:block; }.league-row small { margin-top:4px; color:var(--muted); font-size:11px; }.league-points { font-size:22px; letter-spacing:-.05em; }.league-row-you { margin:0 -24px; padding:0 24px; border-radius:6px; background:#edf0df; }.panel-copy { color:var(--muted); font-size:13px; line-height:1.55; }.trust-list { margin-top:26px; }.trust-list > div { display:flex; gap:12px; align-items:flex-start; margin:18px 0; }.trust-list .record-dot { flex:0 0 10px; }.trust-list b,.trust-list small { display:block; }.trust-list small { margin-top:4px; color:var(--muted); font-size:11px; line-height:1.4; }.league-section { padding-top:76px; }.course-network-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }.course-network-card { padding:18px; border:1px solid var(--line); border-radius:8px; background:var(--card); }.course-network-card > span { color:var(--orange); font:10px 'DM Mono',monospace; }.course-network-card h3 { margin:22px 0 7px; font-size:16px; letter-spacing:-.04em; }.course-network-card p { min-height:34px; margin:0 0 15px; color:var(--muted); font-size:11px; line-height:1.45; }

@@ -1,227 +1,277 @@
-# StickLink Golf
+# State of Stick Golf
 
-Standalone pilot application for the State of Stick golf vertical and the first implementation of the StickLink Golf Network.
+**A physical-world network for golf — built on top of State of Stick.**
 
-## Product thesis
+State of Stick Golf is the golf vertical of State of Stick, Co. It connects
+golfers, courses, rounds, leagues, events, services, and physical course
+touchpoints into one permissioned experience.
 
-StickLink Golf is the physical identity and interaction layer for golf: a golfer-owned passport and a course-owned network of tap points that make rounds, achievements, collectibles, sponsor activations, and post-round relationships measurable.
+This repository is the golf-specific application and pilot. It is **not** the
+State of Stick platform itself. The private State of Stick codebase contains
+the important shared IP and authority for identity, organizations, roles,
+entitlements, commerce, payments, physical identity, attribution, and governed
+AI policy. Those implementation details are intentionally kept out of this
+repository. Golf integrates with that platform through typed contracts and
+verified assertions; it does not recreate the platform or expose its secrets.
 
-The product is not a replacement for GHIN, a governing body, a bookmaker, or a course-management suite. It is the identity, physical-interaction, scoring-context, commerce, and provenance layer that can sit across those organizations.
+> **IP boundary:** Treat this repository as a vertical product layer, not a
+> copy of the State of Stick platform. Never add private platform source,
+> credentials, internal algorithms, or production identity details here.
 
-## Pilot surface
+## The short version
 
-- `/` — course landing and active-round entry
-- `/passport/` — golfer passport, achievements, and collection
-- `/course/cedar-ridge/` — hole-by-hole connected course experience
-- `/operator/` — course-side activity and activation view
-- `/round/cedar-ridge/` — working live scorecard with official, Stableford, and StickLink views
-- `/network/` — golfer/course/physical-graph network view
-- `/events/state-of-stick-invitational/` — event identity and live leaderboard concept
-- `/league/anywhere/` — portable multi-course season and shared standings
-- `/discover/` — provider-neutral course discovery with map and list views
-- `/pitch/` — plain-language owner brief for the golf vertical
+Golf is played in a physical place, but the useful context of a round is often
+scattered across a scorecard, tee sheet, clubhouse conversations, league
+spreadsheets, sponsor materials, and personal memory. State of Stick Golf gives
+those moments a shared structure:
 
-## Build boundary
+```text
+physical course moment
+        ↓ tap, scan, service request, or verified interaction
+golf context
+        ↓ course, hole, round, event, league, or operator record
+useful experience
+        ↓ passport, score context, service, insight, or return visit
+permissioned network memory
+```
 
-The current build uses local mock data only. The scorecard demonstrates the product boundary: official strokes remain distinct from format points, physical verification, and passport history. No production claims, golfer tracking, sponsor attribution, or payment flows are implied by the demo.
+The central idea is simple: **a small physical object can become a doorway to
+the right digital action at the right moment.**
 
-## Platform boundary
+## What this codebase does
 
-Golf is the vertical experience, not a second platform. In a connected implementation, State of Stick remains the source of truth for identity, organizations, physical StickLinks, commerce, payments, entitlements, and attribution. This application owns golf-specific concepts such as courses, holes, rounds, rulesets, leagues, events, challenges, and score context.
+The Astro frontend and Cloudflare Worker together provide the first golf
+network slice:
 
-The product is designed for participation, discovery, sponsor activation, and course commerce. It does not implement wagering, odds, prize pools, payout balances, or entry-fee-to-prize mechanics.
+- golfer passports for rounds, courses, achievements, collections, and season history;
+- course pages with hole-by-hole context, approved knowledge, announcements, services, and connected touchpoints;
+- round capture with official strokes kept separate from Stableford or other format points, tap verification, witness confirmation, and audit history;
+- portable leagues and matches that can span multiple eligible courses;
+- operator workflows for course claims, publication, tee-time activation, round review, services, tap points, announcements, and recorded activity;
+- a provider-neutral intelligence layer for round summaries, trends, practice suggestions, course questions, and operator explanations;
+- an offline-friendly round path using browser IndexedDB for pending work and retry-safe synchronization;
+- D1-backed records with Durable Object overlays for live coordination;
+- a platform outbox so golf events can be forwarded to State of Stick for downstream identity, analytics, entitlement, and commercial workflows.
 
-## Free-first architecture
+The current pilot uses demonstration data and local/static surfaces in several
+places. A route, course name, score, map, or operator screen is not evidence of
+a live partner, production adoption, revenue, or independently validated golf
+data.
 
-The golf network is designed to feel national before it depends on paid infrastructure. The map contract supports course boundaries, holes, tees, greens, hazards, cart paths, StickLink points, league overlays, and dated imagery metadata. The default experience is a local SVG/GeoJSON-compatible course diagram, so a course remains useful when no satellite source is available.
+## How golf works here
 
-Pending rounds use browser IndexedDB for offline score entry, tap verification, witness confirmation, retry, and duplicate-safe sync. No secrets are stored there. Deterministic round summaries and warnings are generated only from supplied scores and course data; trusted facts, suggestions, and unverified observations remain visibly separate.
+### 1. The course becomes interactive
 
-Public course discovery and approved map, imagery, and StickLink reads are exposed by the existing Worker API. Write routes remain authenticated. Geometry is operator-approved context and never replaces official scoring, handicap, yardage, or league records. See [`docs/map-architecture.md`](docs/map-architecture.md) for attribution, licensing, and the future satellite-provider boundary.
+State of Stick's physical identity layer, **StickLink**, can be represented by
+small, numbered, course-specific objects: flagstick medallions, tee markers,
+cart tags, halfway-house signs, pro-shop markers, tournament signage, or other
+durable touchpoints.
 
-## Phase 2 network foundation
+The physical object is intentionally simple. The value comes from the context
+behind it: the course, hole, operator-approved content, current round, service
+catalog, event, or player permission. A tap can open a hole, record an
+interaction, surface a local rule, request a service, save a memory, or connect
+the golfer to the next useful action.
 
-The State of Stick Golf Network adds a derived player passport, explicit round verification events and audit history, public/private weekly or seasonal leagues, operator-seeded course discovery, organization-scoped operator actions, announcements, and D1-backed standings with Durable Object live-event overlays. The API keeps D1 authoritative when live coordination is cold. See [`docs/network-model.md`](docs/network-model.md), [`docs/league-rules.md`](docs/league-rules.md), and [`docs/migrations.md`](docs/migrations.md).
+The application models the touchpoint and its audit trail. Fabrication,
+materials, finishing, attachment, NFC encoding, and field installation remain
+an external manufacturing and course-operations workflow. See
+[`docs/physical-network-and-manufacturing.md`](docs/physical-network-and-manufacturing.md).
 
-## AI-powered State of Stick Golf
+### 2. The golfer owns the ongoing story
 
-State of Stick Golf Intelligence turns authorized round, league, and course records into useful explanations while keeping official facts separate from advisory interpretation. The first provider is a deterministic rules engine, so the product does not require a paid AI service. Every result includes source facts, confidence, timestamp, rule version, provider identifier, and provenance status. See [`docs/golf-intelligence.md`](docs/golf-intelligence.md) and [`docs/product-brand-architecture.md`](docs/product-brand-architecture.md).
+The golfer's passport is a golf read model attached to a State of Stick person
+identity. It can collect completed rounds, courses, holes, achievements,
+verified moments, league participation, and physical objects encountered.
 
-## Implementation plan
+Golf does not create a second account or identity authority. The production
+State of Stick session supplies the verified person, organization, role,
+entitlement, and session context; Golf stores golf records and references to
+those identities.
 
-The build sequence for the portable golf network is documented in [`docs/implementation-plan.md`](docs/implementation-plan.md). The first product slice is a multi-course season with explicit score trust levels and a player-owned passport.
+### 3. The round keeps different kinds of truth separate
 
-## Owner thesis
+| Record | Meaning |
+| --- | --- |
+| Official strokes | The recorded score or an approved external authority's result |
+| Format points | Deterministic Stableford, match-play, skins, or other competition context |
+| Physical proof | Tap, witness, course, operator, or verification events |
+| Passport history | The golfer's durable memory of participation and achievement |
+| Intelligence | Advisory interpretation of authorized records |
 
-The golf vertical should be led by someone who understands golfers and course operators. The opportunity is to make the game more playful and welcoming while giving courses measurable ways to earn through subscriptions, event programs, sponsor activations, commerce attribution, and physical course-linked products.
+A tap, player note, AI response, or self-report never silently becomes an
+official score, handicap, yardage, rule, standing, or payment outcome.
 
-## Product guide: what is actually here
+### 4. Courses and operators get a useful network layer
 
-StickLink Golf is the first physical-world identity vertical in State of
-Stick. It connects a golfer-owned passport to course-owned physical moments:
-tee markers, flagsticks, carts, halfway houses, pro shops, tournament signs,
-and service counters. A tap or course interaction gives the golfer useful
-context at the moment it matters, then gives the course a permissioned record of
-the interaction.
+Operators can claim and review a course, approve content and geometry, publish
+a course profile, manage service offerings, register touchpoints, review round
+and tee-time activity, and understand recorded participation. The system is
+designed to sit alongside a tee sheet, POS, handicap authority, and course
+management suite — not replace them.
 
-The product matters because golf is experienced in person, while much of the
-context disappears when the round ends. The golfer may remember a score but
-lose the course, hole, people, proof, collection, and reason to return. The
-course may have loyal players and valuable physical assets but little visibility
-into participation, repeat visits, service demand, or activation performance.
-StickLink connects those pieces without asking the course to replace its tee
-sheet, payment system, handicap authority, or course-management software.
+## The operator opportunity: an AI layer for the whole course
 
-### Golfer surfaces
+The operator console is more than an admin screen. It is the place where a
+course can turn approved facts and recorded activity into better decisions and
+faster service. The long-term opportunity is a golf operating layer that works
+across a single course, a multi-course group, a league, an event, or a sponsor
+program.
 
-- `/` tells the connected-fairway story and starts the active-round journey.
-- `/round/cedar-ridge/` is the working scorecard surface for hole-by-hole
-  scores, official strokes, format points, physical verification, witness
-  confirmation, retry-safe sync, and round recovery.
-- `/passport/` is the golfer-owned read model for rounds, courses, holes,
-  verified rounds, personal bests, streaks, league memberships, and activity.
-- `/course/cedar-ridge/` presents a course and its hole-by-hole connected
-  experience.
-- `/tap/cedar-ridge/turn-house/` demonstrates a physical touchpoint experience.
-- `/network/`, `/discover/`, `/league/anywhere/`, and the invitational route
-  show the network, discovery, portable competition, and event layers.
-- `/course/cedar-ridge/services/` exposes the published service catalog and
-  lets a golfer request an approved service without exposing payment ownership.
-- `/tee-time/activate/` resolves a secure tee-time handoff, then connects an
-  authenticated golfer slot to a round, services, leagues, and course context.
-- `/intelligence/` explains how deterministic and future model-backed
-  guidance stays separate from official records.
+| Operator need | What Golf can provide | AI's bounded role |
+| --- | --- | --- |
+| Keep the course accurate | Review course facts, geometry, local guidance, services, and announcements before publication | Draft summaries, identify missing or stale coverage, and surface questions that need a human answer |
+| Help golfers in the moment | Course questions, hole context, service requests, tee-time activation, and touchpoint destinations | Answer from approved course knowledge; refuse unsupported conditions or official claims |
+| Run the daily operation | Round review, verification queues, service fulfillment, tee-time status, and audit history | Summarize queues, group repetitive requests, and highlight items needing attention without taking staff action |
+| Understand demand | Taps, unique golfers, active rounds, service requests, completed services, questions, and unanswered topics | Explain recorded patterns and suggest where an operator may investigate next |
+| Operate events and leagues | Announcements, portable matches, standings, check-in, course eligibility, and physical activations | Prepare event briefs and explain published records; never decide winners or alter standings |
+| Measure partner value | Approved sponsor moments, physical touchpoints, participation, service activity, and attributable interactions | Produce provenance-backed activity summaries; never invent reach, revenue, or campaign performance |
 
-### Course and operator surfaces
+That creates a global picture of the technology:
 
-- `/operator/`, `/operator/onboard/`, `/operator/rounds/`,
-  `/operator/tee-times/`, `/operator/services/`, and `/operator/analytics/`
-  cover course onboarding, round review, arrivals, fulfillment, and recorded
-  activity metrics.
-- Course claim requests require explicit review before management access.
-- Operators can manage course profiles, publish/unpublish public profiles,
-  maintain approved knowledge, create announcements, manage service catalogs,
-  register and approve tap points, and record tap events.
-- Tee-time operations support bounded import, activation tokens, player-slot
-  claims, check-in/completion/cancellation transitions, and round binding.
-- Metrics describe recorded D1 activity. They are not settled revenue, POS
-  truth, sponsor attribution, or a claim that a reservation was independently
-  validated.
+```text
+golfer → course touchpoint → approved golf context → operator action
+   ↑             ↓                    ↓                    ↓
+passport     physical proof      Golf Intelligence     analytics
+   ↑             ↓                    ↓                    ↓
+league / event ← service layer ← course knowledge ← State of Stick platform
+```
 
-### Network and competition
+The same foundation can support public course discovery, a resort portfolio,
+an amateur league, a tournament, a sponsor activation, a golf manufacturer, or
+a connected destination. The vertical remains golf-specific while the private
+State of Stick platform supplies the reusable identity, physical-object,
+organization, entitlement, commerce, attribution, and AI-policy capabilities.
 
-- Leagues can be public or private and weekly or seasonal.
-- Round lifecycle is `draft → in_progress → submitted → verified` or
-  `rejected`.
-- Verification events and audit records preserve tap, witness, course, and
-  operator context; a self-report cannot silently become an official result.
-- Supported competition foundations include stroke play, Stableford, match
-  play, and skins. Stableford points, course handicap, and tie ranking are
-  deterministic.
-- Portable matches let golfers submit verified 18-hole rounds from eligible
-  courses. Handicap input and its source remain visible and provisional until
-  an approved authority or commissioner workflow supplies the value.
-- D1 is authoritative for rounds, verification, standings, and published
-  results. Durable Objects provide live overlays and fall back to D1 when cold.
+See [`docs/operator-ai-and-global-opportunity.md`](docs/operator-ai-and-global-opportunity.md)
+for the fuller operator, partner, and expansion view.
 
-### Intelligence and AI
+## AI and golf intelligence
 
-Golf Intelligence is provider-neutral. The current `rules-engine` provider
-uses only authorized golf records and does not require a paid model. Results
-include source facts, interpretation, confidence, timestamp, rule version,
-provider identifier, and provenance status.
+The intelligence layer is designed for useful, bounded assistance rather than
+AI theater.
 
-The bounded course assistant may use Cloudflare Workers AI only after approved
-course-context and refusal checks pass. It treats course content as data, not
-instructions, and cannot write scores, standings, prices, orders,
-announcements, or staff actions. Unsupported, private-player, medical,
-gambling, and unverified-official questions are refused. If inference is
-unavailable, the deterministic path remains useful.
+Today, the default provider is a deterministic `rules-engine`. It calculates
+and explains only from authorized golf records and emits provenance with every
+result:
+
+- source facts and references;
+- interpretation;
+- confidence and verification status;
+- timestamp;
+- rule version and provider identifier.
+
+The Worker also defines a bounded course assistant path for Cloudflare Workers
+AI. It can use published course knowledge as data, answer a narrow course
+question, and fall back to deterministic behavior when model access or approved
+context is unavailable. It cannot write scores, standings, prices, orders,
+announcements, or staff actions.
+
+The assistant refuses private-player questions, medical or gambling advice,
+unsupported live conditions, and unverified official claims. Prompt text is not
+treated as authority and is not persisted as raw insight data. Read the full
+boundary in [`docs/golf-intelligence.md`](docs/golf-intelligence.md).
+
+## Manufacturing and the physical product
+
+The physical layer is where the software meets the course. A practical
+production loop looks like this:
+
+```text
+course / brand brief
+        ↓
+numbered StickLink object and approved destination
+        ↓
+material, finish, encoding, attachment, and installation plan
+        ↓
+operator approval and touchpoint registration
+        ↓
+golfer interaction → golf record → passport / service / insight
+```
+
+The product direction favors durable, manufacturable objects over complicated
+installations: engraved or printed markers, metal or weather-resistant tags,
+course emblems, cart or service identifiers, and event-specific pieces. The
+manufacturing decision depends on the environment and run size — for example,
+UV exposure, water, impact, adhesive or mechanical attachment, NFC/RFID
+compatibility, cleanability, and replacement cost.
+
+This repository supports the digital side of that loop: stable identifiers,
+touchpoint records, approved destinations, verification events, organization
+boundaries, and provenance. It does not claim that a material has been sourced,
+a vendor selected, an object certified, or a course installation completed.
 
 ## Architecture and ownership
 
 ```text
-State of Stick identity/platform
-        │ signed identity assertions and organization authority
-        ▼
-Astro Pages frontend  ───────►  Cloudflare Worker API
-golf.stateofstick.co             golf-api.stateofstick.co
-                                  │
-                         ┌────────┴────────┐
-                         ▼                 ▼
-                   D1 authoritative   Durable Objects
-                   golf records       live overlays
+                 private State of Stick platform
+        identity · organizations · roles · entitlements
+        commerce · payments · physical identity · policy
+                              │
+                 verified identity / platform contracts
+                              ▼
+       Astro Pages frontend ───────► Cloudflare Worker API
+       static golf experience          golf-specific actions
+                                              │
+                              ┌───────────────┴───────────────┐
+                              ▼                               ▼
+                        D1 authoritative              Durable Objects
+                       golf records and audit          live overlays
 ```
 
-The frontend is static Astro output in `dist/`; browser JavaScript is public
-by design and must never contain secrets. The Worker is server-side. D1
-migrations are ordered from the golf foundation through network records,
-intelligence, services, course knowledge, portable matches, billing,
-publication, tee-time activation, and identity sessions.
+Golf owns courses, holes, rounds, score context, leagues, events, matches,
+course knowledge, services, tee-time activation, and golf intelligence.
 
 State of Stick remains authoritative for person identity, organizations,
-physical StickLinks, commerce, payments, entitlements, and attribution. Golf
-stores references to those identities and owns courses, holes, rounds, score
-context, leagues, events, matches, services, course knowledge, and golf
-interpretation. This separation prevents a second password system and keeps
-the Golf vertical portable.
+membership and roles, entitlements, billing, payments, physical identity,
+attribution, and governed AI policy. The integration contract is documented in
+[`docs/platform-integration.md`](docs/platform-integration.md) and
+[`docs/platform-identity-contract.md`](docs/platform-identity-contract.md).
 
-## API capability map
+The current development seam uses `GOLF_WRITE_TOKEN` for controlled local/test
+work. Production onboarding is not complete until the verified State of Stick
+session or signed service assertion is connected and cross-tenant authorization
+tests pass.
 
-The Worker provides health and public reads for approved course profiles,
-course discovery, taps, announcements, and published services. Protected
-capabilities include player passports and intelligence; round creation,
-scores, submission, verification, audit, and live snapshots; league enrollment,
-standings, intelligence, matches, and portable entries; course claims and
-operator review; publication, knowledge, tap points, tap events, services,
-requests, announcements, tee-time operations, metrics, assistant questions,
-feedback, Connected Course checkout, and Stripe webhook processing.
+## Product surfaces
 
-The complete route inventory is maintained in
-[`docs/api-foundation.md`](docs/api-foundation.md). The main integration
-contracts are documented in [`docs/network-model.md`](docs/network-model.md),
-[`docs/tee-time-activation.md`](docs/tee-time-activation.md),
-[`docs/platform-identity-contract.md`](docs/platform-identity-contract.md),
-and [`docs/platform-integration.md`](docs/platform-integration.md).
+| Route | What it demonstrates |
+| --- | --- |
+| `/` | Connected-fairway product story |
+| `/round/cedar-ridge/` | Live scorecard and round trust model |
+| `/passport/` | Golfer-owned passport and achievements |
+| `/course/cedar-ridge/` | Connected course experience |
+| `/tap/cedar-ridge/turn-house/` | Physical touchpoint interaction |
+| `/operator/` | Course-side operations |
+| `/network/` | Golfer, course, and physical network |
+| `/league/anywhere/` | Portable multi-course season |
+| `/discover/` | Provider-neutral course discovery |
+| `/intelligence/` | Provenance-first golf intelligence |
+| `/pitch/` | Plain-language product brief |
 
-## Security boundary and preview protection
+## Repository map
 
-Production protected routes require a signed, time-bounded State of Stick
-identity assertion and an active identity session. The Worker canonicalizes
-legacy person and organization transport headers from that assertion before
-protected handlers use them. Private league access additionally checks active
-enrollment. Operator routes require verified organization membership and an
-allowed operator role. Live round snapshots require the owning golfer or an
-authorized operator for the round’s organization.
-
-Public course facts and published service catalogs remain public intentionally.
-Private responses are `no-store`; public caching is limited to explicitly
-public records. Activation tokens are random and only their SHA-256 hashes are
-stored. The Pages layer emits CSP, HSTS, clickjacking, MIME, referrer, and
-browser-permission headers from [`public/_headers`](public/_headers).
-
-Cloudflare Access is enabled for the `sticklink-golf` Pages preview
-deployments. Unauthenticated preview URLs redirect to Access; authenticated
-users can view the deployment. Production custom domains and production
-`pages.dev` behavior are separate Zero Trust decisions and must not be inferred
-from preview protection.
+- `src/pages/` — Astro product surfaces and route experiences
+- `src/lib/` — golf domain logic, scoring, network, maps, services, AI, and contracts
+- `worker/src/` — Cloudflare Worker API and platform adapters
+- `migrations/` — ordered D1 schema and integration migrations
+- `docs/` — architecture, identity, intelligence, maps, operations, and product notes
+- `tests/` — deterministic regression tests for the golf domain and API foundations
+- `public/` — brand assets, artwork, video, crawler files, and response headers
 
 ## Intentional non-goals
 
-StickLink Golf is not GHIN, a governing-body handicap authority, a bookmaker,
-wagering product, prize-pool ledger, payment wallet, POS, settlement system,
-or replacement tee sheet. There are no entry fees, odds, prize payouts,
-payout balances, or payment instructions in the league foundation.
+State of Stick Golf is not GHIN, a governing-body handicap authority, a
+bookmaker, wagering software, a prize-pool ledger, a payment wallet, a POS, a
+settlement system, or a replacement tee sheet. It does not create odds, entry
+fees, payout balances, or prize mechanics.
 
-A tap, witness, AI response, player note, or generated insight does not become
-official proof by itself. Official scores, handicaps, yardage, course rules,
-standings, prices, payments, and orders remain governed records or human-
-approved actions. Proposed membership tiers and pricing ranges are internal
-pilot hypotheses, not published prices or live entitlements.
+It also does not expose the private State of Stick platform implementation.
+That separation is part of the architecture and part of the IP strategy.
 
-## Release and validation checklist
+## Validate locally
 
-Run the required checks from the repository root:
+From the repository root:
 
 ```bash
 npm test
@@ -231,8 +281,5 @@ npm run build
 git diff --check
 ```
 
-The normal release boundary is: local validation → focused commit → GitHub
-branch → Pages deployment → custom-domain verification. Keep those states
-separate when reporting release evidence. Do not commit `dist/`, `.astro/`,
-`.wrangler/`, `.dev.vars`, credentials, identity secrets, payment secrets, or
-production environment files.
+Do not commit `dist/`, `.astro/`, `.wrangler/`, `.dev.vars`, credentials,
+identity secrets, payment secrets, or production environment files.

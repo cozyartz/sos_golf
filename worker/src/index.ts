@@ -10,6 +10,7 @@ import { readStateOfStickAssertion } from './identity';
 import type { PlatformIdentityClaims } from '../../src/lib/platform-contract';
 import { golferPlans } from '../../src/lib/membership';
 import { canTransitionTeeTimeStatus, isTeeTimePlayerCount, isTeeTimeSource, isTeeTimeStatus, type TeeTimeStatus } from '../../src/lib/tee-times';
+import { buildOperatorBrief } from '../../src/lib/operator';
 import type { D1PreparedStatement } from '@cloudflare/workers-types';
 
 type JsonObject = Record<string, unknown>;
@@ -257,6 +258,34 @@ async function getOperatorMetrics(request: Request, env: Env, courseId: string):
     env.DB.prepare(`SELECT s.label, s.location_type, COUNT(e.id) AS taps FROM golf_sticklink_locations s LEFT JOIN golf_tap_events e ON e.tap_point_id = s.id AND e.created_at >= ?2 WHERE s.course_id = ?1 GROUP BY s.id ORDER BY taps DESC, s.label LIMIT 1`).bind(courseId, since).first<{ label: string; location_type: string; taps: number }>(),
   ]);
   return json({ courseId, window: { since, until: new Date().toISOString() }, metrics: { tapEvents: Number(taps?.count ?? 0), uniqueGolfers: Number(uniqueGolfers?.count ?? 0), activeRounds: Number(activeRounds?.count ?? 0), serviceRequests: Number(requests?.count ?? 0), completedServiceRequests: Number(requests?.completed ?? 0), recordedCompletedServiceValueCents: Number(serviceValue?.cents ?? 0), golfAgentQuestions: Number(questions?.count ?? 0), unansweredGolfAgentQuestions: Number(questions?.unanswered ?? 0), busiestTap: busiestTap ? { label: busiestTap.label, locationType: busiestTap.location_type, taps: Number(busiestTap.taps) } : null }, sourceBoundary: 'Counts are derived from recorded D1 activity. Recorded service value is not settled revenue and does not imply payment or POS integration.' }, 200, { 'cache-control': 'private, no-store' });
+}
+
+async function getOperatorBrief(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id');
+  if (!organizationId || !isValidId(courseId)) return error('Organization and course identity are required.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id, name FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first<{ id: string; name: string }>();
+  if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const [submittedRounds, openServices, activeTeeTimes, unansweredQuestions, attentionTapPoints, unpublishedKnowledge, unapprovedGeometry] = await Promise.all([
+    env.DB.prepare("SELECT COUNT(*) AS count FROM golf_rounds WHERE course_id = ?1 AND state_of_stick_organization_id = ?2 AND status = 'submitted'").bind(courseId, organizationId).first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM golf_service_requests WHERE course_id = ?1 AND organization_id = ?2 AND status IN ('requested', 'accepted', 'in_progress', 'ready')").bind(courseId, organizationId).first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM golf_tee_time_reservations WHERE course_id = ?1 AND organization_id = ?2 AND status IN ('reserved', 'activated', 'checked_in') AND updated_at >= ?3").bind(courseId, organizationId, since).first<{ count: number }>(),
+    env.DB.prepare('SELECT COUNT(*) AS count FROM golf_course_question_events WHERE course_id = ?1 AND organization_id = ?2 AND answered_from_approved_context = 0 AND created_at >= ?3').bind(courseId, organizationId, since).first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM golf_sticklink_locations WHERE course_id = ?1 AND organization_id = ?2 AND status = 'needs_attention'").bind(courseId, organizationId).first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM golf_course_knowledge WHERE course_id = ?1 AND organization_id = ?2 AND status != 'published'").bind(courseId, organizationId).first<{ count: number }>(),
+    env.DB.prepare('SELECT COUNT(*) AS count FROM golf_course_map_layers WHERE course_id = ?1 AND organization_id = ?2 AND approved_by_operator = 0').bind(courseId, organizationId).first<{ count: number }>(),
+  ]);
+  const input = {
+    submittedRounds: Number(submittedRounds?.count ?? 0),
+    openServiceRequests: Number(openServices?.count ?? 0),
+    activeTeeTimeHandoffs: Number(activeTeeTimes?.count ?? 0),
+    unansweredQuestions: Number(unansweredQuestions?.count ?? 0),
+    attentionTapPoints: Number(attentionTapPoints?.count ?? 0),
+    unpublishedKnowledge: Number(unpublishedKnowledge?.count ?? 0),
+    unapprovedGeometry: Number(unapprovedGeometry?.count ?? 0),
+  };
+  return json({ course, window: { since, until: new Date().toISOString() }, brief: buildOperatorBrief(input), counts: input }, 200, { 'cache-control': 'private, no-store' });
 }
 
 async function createCourseClaim(request: Request, env: Env): Promise<Response> {
@@ -603,6 +632,45 @@ async function getCourse(env: Env, id: string): Promise<Response> {
   const holes = await env.DB.prepare('SELECT course_id, hole_number, name, par, handicap_index, yards, challenge FROM golf_holes WHERE course_id = ?1 ORDER BY hole_number').bind(id).all();
   const teeSets = await env.DB.prepare('SELECT id, course_id, name, color, rating, slope, yardage FROM golf_tee_sets WHERE course_id = ?1 ORDER BY yardage DESC').bind(id).all();
   return json({ course: { ...course, holes: holes.results, teeSets: teeSets.results } });
+}
+
+async function getCourseGraph(env: Env, id: string): Promise<Response> {
+  if (!isValidId(id)) return error('Course id is invalid.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare(`SELECT id, name, region, address, tap_points, latitude, longitude, state_code, difficulty
+    FROM golf_courses WHERE id = ?1`).bind(id).first<Record<string, unknown>>();
+  if (!course) return error('Course not found.', 404, 'NOT_FOUND');
+  const [holes, teeSets, layers, sticklinks, services, announcements, knowledge, leagues] = await Promise.all([
+    env.DB.prepare('SELECT hole_number, name, par, handicap_index, yards, challenge FROM golf_holes WHERE course_id = ?1 ORDER BY hole_number').bind(id).all(),
+    env.DB.prepare('SELECT id, name, color, rating, slope, yardage FROM golf_tee_sets WHERE course_id = ?1 ORDER BY yardage DESC').bind(id).all(),
+    env.DB.prepare("SELECT id, layer_kind, label, geometry_json, source, source_identifier, geometry_version, approved_at FROM golf_course_map_layers WHERE course_id = ?1 AND approved_by_operator = 1 ORDER BY layer_kind, label").bind(id).all(),
+    env.DB.prepare("SELECT id, label, location_type, geometry_json, source, approved_at FROM golf_sticklink_locations WHERE course_id = ?1 AND approved_by_operator = 1 AND status != 'retired' ORDER BY label").bind(id).all(),
+    env.DB.prepare("SELECT id, service_type, name, description, price_cents, currency, fulfillment_modes, updated_at FROM golf_service_catalog WHERE course_id = ?1 AND active = 1 AND published = 1 ORDER BY service_type, name").bind(id).all(),
+    env.DB.prepare('SELECT id, title, body, created_at, updated_at FROM golf_course_announcements WHERE course_id = ?1 AND published = 1 ORDER BY created_at DESC').bind(id).all(),
+    env.DB.prepare("SELECT id, content_type, title, body, source, source_identifier, approved_at, updated_at FROM golf_course_knowledge WHERE course_id = ?1 AND status = 'published' ORDER BY content_type, title").bind(id).all(),
+    env.DB.prepare("SELECT l.id, l.name, l.season, l.status, l.format FROM golf_league_courses lc JOIN golf_leagues l ON l.id = lc.league_id WHERE lc.course_id = ?1 AND l.status != 'draft' ORDER BY l.start_date DESC, l.name").bind(id).all(),
+  ]);
+  const source = (sourceRef: string, verified: boolean) => ({ sourceRef, verified });
+  const courseNode = { id: `course:${id}`, courseId: id, kind: 'course', label: String(course.name), metadata: course, source: source(`course:${id}`, false) };
+  const teeNodes = (teeSets.results as Array<Record<string, unknown>>).map((tee) => ({ id: `tee-set:${id}:${tee.id}`, courseId: id, kind: 'tee_set', label: String(tee.name), metadata: tee, source: source(`course:${id}:tee-set:${tee.id}`, false) }));
+  const holeNodes = (holes.results as Array<Record<string, unknown>>).map((hole) => ({ id: `hole:${id}:${hole.hole_number}`, courseId: id, kind: 'hole', label: String(hole.name), holeNumber: Number(hole.hole_number), metadata: hole, source: source(`course:${id}:hole:${hole.hole_number}`, false) }));
+  const layerNodes = (layers.results as Array<Record<string, unknown>>).map((layer) => ({ id: `layer:${layer.id}`, courseId: id, kind: String(layer.layer_kind), label: String(layer.label), metadata: layer, source: source(String(layer.source_identifier ?? `map-layer:${layer.id}`), true) }));
+  const sticklinkNodes = (sticklinks.results as Array<Record<string, unknown>>).map((tap) => ({ id: `sticklink:${tap.id}`, courseId: id, kind: 'sticklink', label: String(tap.label), metadata: tap, source: source(String(tap.source), true) }));
+  const serviceNodes = (services.results as Array<Record<string, unknown>>).map((service) => ({ id: `service:${service.id}`, courseId: id, kind: 'service', label: String(service.name), metadata: service, source: source(`service:${service.id}`, true) }));
+  const eventNodes = (announcements.results as Array<Record<string, unknown>>).map((announcement) => ({ id: `announcement:${announcement.id}`, courseId: id, kind: 'event', label: String(announcement.title), metadata: announcement, source: source(`announcement:${announcement.id}`, true) }));
+  const knowledgeNodes = (knowledge.results as Array<Record<string, unknown>>).map((item) => ({ id: `knowledge:${item.id}`, courseId: id, kind: 'course_knowledge', label: String(item.title), metadata: item, source: source(String(item.source_identifier ?? `knowledge:${item.id}`), true) }));
+  const leagueNodes = (leagues.results as Array<Record<string, unknown>>).map((league) => ({ id: `league:${league.id}`, courseId: id, kind: 'league', label: String(league.name), metadata: league, source: source(`league:${league.id}`, true) }));
+  const nodes = [courseNode, ...teeNodes, ...holeNodes, ...layerNodes, ...sticklinkNodes, ...serviceNodes, ...eventNodes, ...knowledgeNodes, ...leagueNodes];
+  const edges = [
+    ...teeNodes.map((item) => ({ from: courseNode.id, to: item.id, relation: 'contains' })),
+    ...holeNodes.map((item) => ({ from: courseNode.id, to: item.id, relation: 'contains' })),
+    ...layerNodes.map((item) => ({ from: courseNode.id, to: item.id, relation: 'contains' })),
+    ...sticklinkNodes.map((item) => ({ from: courseNode.id, to: item.id, relation: 'contains' })),
+    ...serviceNodes.map((item) => ({ from: courseNode.id, to: item.id, relation: 'serves' })),
+    ...eventNodes.map((item) => ({ from: courseNode.id, to: item.id, relation: 'supports' })),
+    ...knowledgeNodes.map((item) => ({ from: courseNode.id, to: item.id, relation: 'supports' })),
+    ...leagueNodes.map((item) => ({ from: courseNode.id, to: item.id, relation: 'supports' })),
+  ];
+  return json({ graph: { courseId: id, nodes, edges }, sourceBoundary: 'Only public course records and operator-approved physical/context records are included. Identity, private rounds, hardware ids, and unapproved content remain outside this graph.' }, 200, { 'cache-control': 'public, max-age=60' });
 }
 
 async function getLeague(request: Request, env: Env, id: string): Promise<Response> {
@@ -1459,6 +1527,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin'), env) });
     if (url.pathname === '/health' && request.method === 'GET') return withCors(json({ ok: true, service: 'sticklink-golf-api', environment: env.ENVIRONMENT }), request, env);
     if (url.pathname.match(/^\/api\/v1\/public\/courses\/[^/]+$/) && request.method === 'GET') return withCors(await getPublicCourseProfile(env, url.pathname.split('/')[5] ?? ''), request, env);
+    if (url.pathname.match(/^\/api\/v1\/public\/courses\/[^/]+\/graph$/) && request.method === 'GET') return withCors(await getCourseGraph(env, url.pathname.split('/')[5] ?? ''), request, env);
     if (url.pathname.match(/^\/api\/v1\/public\/tee-time-activations\/[^/]+$/) && request.method === 'GET') return withCors(await getTeeTimeActivation(env, url.pathname.split('/')[6] ?? ''), request, env);
     if (url.pathname.match(/^\/api\/v1\/taps\/[^/]+$/) && request.method === 'GET') return withCors(await resolveTap(env, url.pathname.split('/')[4] ?? ''), request, env);
     if (!url.pathname.startsWith('/api/v1/')) return withCors(error('Not found.', 404, 'NOT_FOUND'), request, env);
@@ -1484,7 +1553,7 @@ export default {
       verifiedIdentities.set(request, identity);
     }
 
-    const operatorRoute = url.pathname.match(/^\/api\/v1\/(courses\/[^/]+\/(?:tee-times|rounds|publication|map-layers|knowledge|assistant|question-insights|tap-points|tap-events|announcements|services|service-requests|operator-profile|operator-review|operator-metrics|billing)|tee-times\/[^/]+\/status|service-requests\/[^/]+\/status|rounds\/[^/]+\/verification|course-claims(?:\/[^/]+\/review)?$)/);
+    const operatorRoute = url.pathname.match(/^\/api\/v1\/(courses\/[^/]+\/(?:tee-times|rounds|publication|map-layers|knowledge|assistant|question-insights|tap-points|tap-events|announcements|services|service-requests|operator-profile|operator-review|operator-metrics|operator-brief|billing)|tee-times\/[^/]+\/status|service-requests\/[^/]+\/status|rounds\/[^/]+\/verification|course-claims(?:\/[^/]+\/review)?$)/);
     const golferServiceRequest = url.pathname.endsWith('/service-requests') && request.method === 'POST';
     const publicServiceCatalog = url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/services$/) && request.method === 'GET';
     if (operatorRoute && !golferServiceRequest && !publicServiceCatalog && request.method !== 'OPTIONS') {
@@ -1575,6 +1644,8 @@ export default {
       response = await operatorCourseReview(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/operator-metrics$/) && request.method === 'GET') {
       response = await getOperatorMetrics(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/operator-brief$/) && request.method === 'GET') {
+      response = await getOperatorBrief(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname === '/api/v1/course-claims' && request.method === 'POST') {
       response = await createCourseClaim(request, env);
     } else if (url.pathname === '/api/v1/course-claims' && request.method === 'GET') {
@@ -1583,6 +1654,8 @@ export default {
       response = await reviewCourseClaim(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/intelligence$/) && request.method === 'GET') {
       response = await getOperatorIntelligence(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/graph$/) && request.method === 'GET') {
+      response = await getCourseGraph(env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname === '/api/v1/courses' && request.method !== 'GET') {
       response = error('Course writes are not available on the public API.', 405, 'METHOD_NOT_ALLOWED');
     } else if (url.pathname.startsWith('/api/v1/courses/') && request.method === 'GET') {
