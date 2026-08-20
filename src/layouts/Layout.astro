@@ -45,8 +45,7 @@ const isPitch = Astro.url.pathname === '/pitch' || Astro.url.pathname === '/pitc
     {structuredData && <script is:inline type="application/ld+json" set:html={JSON.stringify(structuredData)} />}
     <title>{title}</title>
   </head>
-  <body class:list={{ 'is-pitch': isPitch }}>
-    <div class="site-utility shell"><span>⚡ WEATHERPROOF COMPOSITE. BUILT TO LAST.</span><span>STATE OF STICK GOLF · BUILT IN BATTLE CREEK, MI ⚡</span></div>
+  <body>
     <header class:list={["site-header", "shell", { "site-header-pitch": isPitch }]}>
       <a class="wordmark" href="/" aria-label="State of Stick Golf home"><img src="/brand/golf/sosgolf-logo.png" alt="" /><span>STATE OF STICK <i>/ GOLF</i></span></a>
       {isPitch ? <nav class="pitch-nav" aria-label="Pitch navigation">
@@ -57,18 +56,12 @@ const isPitch = Astro.url.pathname === '/pitch' || Astro.url.pathname === '/pitc
         <a href="/round/cedar-ridge/">Play a round</a>
         <a href="/passport/">My passport</a>
         <a href="/league/anywhere/">Play anywhere</a>
+        <a href="/network/">Network</a>
         <a href="/discover/">Discover</a>
-        <details class="more-nav">
-          <summary>More</summary>
-          <div class="more-nav-menu">
-            <a href="/network/">Network</a>
-            <a href="/intelligence/">Round intelligence</a>
-            <a href="/membership/">Membership</a>
-            <a href="/pitch/">For course owners</a>
-          </div>
-        </details>
+        <a href="/intelligence/">Round intelligence</a>
+        <a href="/pitch/">For course owners</a>
       </nav>}
-      {isPitch ? <a class="header-cta" href="#founding-partnership">Discuss partnership <span>↗</span></a> : <a class="profile-chip" href="/passport/" aria-label="View Andrea's golfer passport"><span class="avatar">AC</span><span>Andrea</span><span class="chevron">↗</span></a>}
+      {isPitch ? <a class="header-cta" href="#founding-partnership">Discuss partnership <span>↗</span></a> : <a class="profile-chip" href="/passport/" aria-label="View Andrea's golfer passport"><span class="avatar">AC</span><span>Andrea</span><span class="chevron">⌄</span></a>}
       {!isPitch && <details class="mobile-menu">
         <summary aria-label="Open navigation menu"><span></span><span></span><span></span></summary>
         <nav aria-label="Mobile navigation">
