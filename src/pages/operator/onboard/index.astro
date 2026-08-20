@@ -24,5 +24,30 @@ import Layout from '../../../layouts/Layout.astro';
   document.querySelectorAll('[data-next]').forEach((button) => button.addEventListener('click', () => show(button.dataset.next)));
   document.querySelectorAll('[data-prev]').forEach((button) => button.addEventListener('click', () => show(button.dataset.prev)));
   steps.forEach((step) => step.addEventListener('click', () => show(step.dataset.step)));
-  document.querySelector('#finish-onboard')?.addEventListener('click', () => { const status = document.querySelector('#onboard-status'); if (status) status.textContent = 'Demo setup captured locally. A real launch would send this for operator review and identity verification.'; });
+  const apiOrigin = 'https://golf-api.stateofstick.co';
+  const note = document.querySelector('.onboard-note');
+  if (note) note.innerHTML = '<strong>PRODUCTION CONNECTION</strong><br />This flow is connected to the Golf API. Submitting a review request requires a verified State of Stick operator session; nothing is published or billed automatically.';
+  const getIdentityAssertion = () => window.StateOfStick?.identityAssertion ?? document.querySelector('meta[name="state-of-stick-identity"]')?.getAttribute('content') ?? '';
+  const selectedWorkflows = () => [...document.querySelectorAll('.onboard-options input:checked')].map((input) => input.closest('label')?.querySelector('strong')?.textContent?.trim()).filter(Boolean);
+  document.querySelector('#finish-onboard')?.addEventListener('click', async () => {
+    const status = document.querySelector('#onboard-status');
+    if (!status) return;
+    const assertion = getIdentityAssertion();
+    if (!assertion) { status.textContent = 'Connect your State of Stick operator session before submitting this review request.'; return; }
+    const requestedName = document.querySelector('input[aria-label="Course name"]')?.value?.trim() ?? '';
+    const region = document.querySelector('select[aria-label="Course region"]')?.value?.trim() ?? '';
+    if (requestedName.length < 2 || region.length < 2) { status.textContent = 'Enter a course name and region before submitting.'; return; }
+    const button = document.querySelector('#finish-onboard');
+    if (button) button.disabled = true;
+    status.textContent = 'Submitting operator review request…';
+    try {
+      const response = await fetch(`${apiOrigin}/api/v1/course-claims`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'x-state-of-stick-identity-assertion': assertion }, body: JSON.stringify({ requestedName, region, requestedWorkflows: selectedWorkflows() }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error?.message ?? 'The operator review request could not be submitted.');
+      status.textContent = `Review request ${result.claim?.id ?? 'created'} submitted. State of Stick will keep publication under operator approval.`;
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : 'The operator review request could not be submitted.';
+      if (button) button.disabled = false;
+    }
+  });
 </script>
