@@ -39,3 +39,24 @@ AI allowance at zero          → deny AI request
 The temporary `GOLF_WRITE_TOKEN` seam remains available for development and
 controlled tests only. Production onboarding is not complete until the adapter
 is connected and cross-tenant authorization tests pass.
+
+## Signed assertion handoff
+
+The current Worker includes a fail-closed HMAC handoff for the first State of
+Stick adapter. State of Stick issues an assertion in the
+`x-state-of-stick-identity-assertion` header using this compact format:
+
+```text
+base64url(JSON claims).base64url(HMAC-SHA256(payload, shared secret))
+```
+
+The shared secret is stored only as the Worker secret
+`STATE_OF_STICK_IDENTITY_SECRET` and must be at least 32 characters. Golf
+verifies the signature, issuer, claim shape, issued/expiry window, and any
+caller identity headers before an API route runs. In production, a missing or
+invalid assertion fails closed. The existing `GOLF_WRITE_TOKEN` path remains
+development-only and is not an identity system.
+
+The central adapter still needs to issue this assertion after verifying the
+State of Stick session and revocation state. No browser-controlled plan,
+person, organization, or role value is trusted by Golf.

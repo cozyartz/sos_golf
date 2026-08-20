@@ -6,6 +6,7 @@ const {
   eyebrow = 'STATE OF STICK / GOLF',
   image = '/art/flagstick-tap-medallion.png',
   type = 'website',
+  robots = 'index, follow',
   structuredData
 } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://golf.stateofstick.co').toString();
@@ -19,6 +20,7 @@ const isPitch = Astro.url.pathname === '/pitch' || Astro.url.pathname === '/pitc
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={description} />
+    <meta name="robots" content={robots} />
     <meta name="theme-color" content="#172019" />
     <link rel="canonical" href={canonical} />
     <meta property="og:type" content={type} />

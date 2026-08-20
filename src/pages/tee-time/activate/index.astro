@@ -1,0 +1,110 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+---
+
+<Layout
+  title="Tee-time activation — StickLink Golf"
+  description="Open a secure, course-approved StickLink Golf tee-time experience."
+  eyebrow="CONNECTED TEE TIME / PRIVATE HANDOFF"
+  robots="noindex, nofollow, noarchive"
+>
+  <section class="page shell tee-time-activation-page">
+    <div class="tee-time-activation-shell">
+      <div class="tee-time-activation-copy">
+        <div class="eyebrow">YOUR ROUND STARTS HERE</div>
+        <h1>One tap closer to the first tee.</h1>
+        <p class="page-lead">This secure handoff connects your existing tee-time booking to the course experience. Review the details, then continue when your State of Stick identity is connected.</p>
+      </div>
+
+      <div class="tee-time-status-line" aria-live="polite">
+        <span class="tee-time-status-dot"></span>
+        <span id="activation-status">Looking up your tee time…</span>
+      </div>
+
+      <div id="activation-error" class="tee-time-message tee-time-message-error" hidden>
+        <strong>We could not open this tee time.</strong>
+        <span>Ask the course to send the activation link again. Your booking and payment remain with the course’s existing reservation system.</span>
+      </div>
+
+      <div id="activation-card" class="tee-time-activation-card" hidden>
+        <div class="tee-time-card-top">
+          <span>CONNECTED BOOKING</span>
+          <span id="activation-status-badge">READY</span>
+        </div>
+        <div class="tee-time-course-block">
+          <div>
+            <span class="tee-time-label">COURSE</span>
+            <h2 id="activation-course">—</h2>
+            <p id="activation-region">—</p>
+          </div>
+          <div class="tee-time-mark" aria-hidden="true">TAP<br />TO<br />PLAY</div>
+        </div>
+        <div class="tee-time-detail-grid">
+          <div><span class="tee-time-label">STARTS</span><strong id="activation-start">—</strong></div>
+          <div><span class="tee-time-label">PLAYERS</span><strong id="activation-players">—</strong></div>
+          <div><span class="tee-time-label">BOOKING STATE</span><strong id="activation-state">—</strong></div>
+        </div>
+        <div class="tee-time-message tee-time-message-note">
+          <strong>What happens next</strong>
+          <span>After identity is connected, you can claim your place, start the round, keep score, ask the Golf Agent approved course questions, and request available on-course services.</span>
+        </div>
+        <div class="tee-time-actions">
+          <a class="button" href="/membership/">Explore golfer membership <span>↗</span></a>
+          <a class="button secondary" href="/round/cedar-ridge/">See the demo round <span>↗</span></a>
+        </div>
+        <p class="tee-time-approval-note"><span aria-hidden="true">●</span> Account claiming and round start require a verified State of Stick identity. Human and operator approval remain in control of consequential actions.</p>
+      </div>
+
+      <div id="activation-empty" class="tee-time-message tee-time-message-note" hidden>
+        <strong>Open this page from your course’s tee-time link.</strong>
+        <span>The activation token is private and is included in the booking handoff. It is not a public course code.</span>
+      </div>
+    </div>
+  </section>
+
+  <script is:inline>
+    const apiOrigin = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? 'http://localhost:8787'
+      : 'https://golf-api.stateofstick.co';
+    const token = new URLSearchParams(window.location.search).get('token');
+    const status = document.querySelector('#activation-status');
+    const error = document.querySelector('#activation-error');
+    const empty = document.querySelector('#activation-empty');
+    const card = document.querySelector('#activation-card');
+    const setText = (selector, value) => { const element = document.querySelector(selector); if (element) element.textContent = value; };
+    const formatStart = (value) => {
+      const date = new Date(value);
+      return Number.isNaN(date.valueOf()) ? 'Time supplied by course' : new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date);
+    };
+    const titleCase = (value) => value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+    const showError = (message = 'We could not open this tee time.') => {
+      status.textContent = message;
+      error.hidden = false;
+      document.querySelector('.tee-time-status-dot')?.classList.add('is-error');
+    };
+
+    if (!token) {
+      status.textContent = 'Activation token required';
+      empty.hidden = false;
+    } else {
+      fetch(`${apiOrigin}/api/v1/public/tee-time-activations/${encodeURIComponent(token)}`, { headers: { Accept: 'application/json' } })
+        .then(async (response) => {
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.error || 'This activation link is unavailable.');
+          return payload;
+        })
+        .then((payload) => {
+          const activation = payload.activation || payload;
+          setText('#activation-course', activation.course?.name || 'Course experience');
+          setText('#activation-region', activation.course?.region || 'Course-approved details');
+          setText('#activation-start', formatStart(activation.startsAt));
+          setText('#activation-players', `${activation.playerCount || '—'} player${activation.playerCount === 1 ? '' : 's'}`);
+          setText('#activation-state', titleCase(activation.status || 'reserved'));
+          setText('#activation-status-badge', titleCase(activation.status || 'ready'));
+          status.textContent = 'Tee time found · ready for review';
+          card.hidden = false;
+        })
+        .catch((requestError) => showError(requestError.message));
+    }
+  </script>
+</Layout>

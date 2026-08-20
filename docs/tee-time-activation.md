@@ -9,10 +9,12 @@ pre-round experience to it.
 
 1. An operator or approved connector imports a tee-time reference.
 2. Golf creates a random activation token and stores only its SHA-256 hash.
-3. The operator sends the activation URL through the course's existing booking
-   confirmation or reminder flow.
+3. The operator sends the golfer-facing activation URL through the course's
+   existing booking confirmation or reminder flow. The URL resolves to
+   `/tee-time/activate/?token=...` on the Golf site; the page calls the public
+   lookup endpoint behind the scenes.
 4. The golfer resolves the URL to see the course, start time, player count, and
-   approved next steps.
+   approved next steps without exposing reservation ownership or payment data.
 5. An authenticated State of Stick identity session claims a player slot,
    starts a round, and connects scoring, services, leagues, and Golf Agent
    context.
@@ -23,6 +25,9 @@ identity assignment, and consequential status changes require an authenticated
 golfer session. The current Worker still uses the repository's temporary write
 authentication seam; production deployment must replace that seam with the
 State of Stick identity adapter before broad access is enabled.
+
+The activation page is intentionally `noindex` because its token is a private
+handoff from a course's booking flow, not a public course landing page.
 
 ## Claim and start
 

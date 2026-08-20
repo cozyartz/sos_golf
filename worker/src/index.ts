@@ -6,10 +6,12 @@ import { calculateServiceTotal, canTransitionServiceRequest, type GolfServiceTyp
 import { calculateHandicapStableford, calculateProvisionalCourseHandicap, resolveCompetition, type CompetitionFormat } from '../../src/lib/competition';
 import { createOperatorCheckout, stripeObjectString, verifyStripeWebhook, type StripeEvent } from './stripe';
 import { platformEventStatement } from './platform';
+import { readStateOfStickAssertion } from './identity';
 import { golferPlans } from '../../src/lib/membership';
 import { canTransitionTeeTimeStatus, isTeeTimePlayerCount, isTeeTimeSource, isTeeTimeStatus, type TeeTimeStatus } from '../../src/lib/tee-times';
 
 type JsonObject = Record<string, unknown>;
+const verifiedIdentityRequests = new WeakSet<Request>();
 
 type RoundInput = {
   courseId: string;
@@ -60,7 +62,7 @@ function corsHeaders(origin: string | null, env: Env): HeadersInit {
   const allowedOrigin = origin && origin === env.PUBLIC_ORIGIN ? origin : env.PUBLIC_ORIGIN;
   return {
     'access-control-allow-origin': allowedOrigin,
-    'access-control-allow-headers': 'authorization, content-type, x-state-of-stick-organization-id, x-state-of-stick-person-id',
+    'access-control-allow-headers': 'authorization, content-type, x-state-of-stick-identity-assertion, x-state-of-stick-organization-id, x-state-of-stick-person-id',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     vary: 'Origin',
   };
@@ -123,6 +125,8 @@ function stripeEnv(env: Env): { STRIPE_SECRET_KEY?: string; STRIPE_WEBHOOK_SECRE
 }
 
 function requireWriteAccess(request: Request, env: Env): Response | null {
+  if (verifiedIdentityRequests.has(request)) return null;
+  if (env.ENVIRONMENT === 'production') return error('A verified State of Stick identity assertion is required.', 401, 'IDENTITY_REQUIRED');
   const writeToken = getWriteToken(env);
   if (!writeToken) return error('Write authentication is not configured.', 503, 'AUTH_NOT_CONFIGURED');
   const authorization = request.headers.get('authorization');
@@ -352,7 +356,7 @@ async function importTeeTimes(request: Request, env: Env, courseId: string): Pro
         ON CONFLICT(course_id, source_system, external_reservation_id) DO UPDATE SET starts_at = excluded.starts_at, player_count = excluded.player_count, status = excluded.status, booking_url = excluded.booking_url, imported_at = excluded.imported_at, updated_at = excluded.updated_at`).bind(id, courseId, organizationId, sourceSystem, externalId, new Date(startsAt).toISOString(), playerCount, status, typeof bookingUrl === 'string' ? bookingUrl : null, tokenHash, new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString(), importedAt),
       env.DB.prepare(`INSERT INTO golf_tee_time_events (id, reservation_id, organization_id, actor_person_id, event_type, details_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`).bind(`tee-event-${crypto.randomUUID()}`, id, organizationId, actorId, existing ? 'updated' : 'imported', JSON.stringify({ sourceSystem, externalReservationId: externalId, status }), importedAt),
     ]);
-    imported.push({ id, externalReservationId: externalId, startsAt: new Date(startsAt).toISOString(), playerCount, status, activationUrl: token ? `${env.PUBLIC_ORIGIN}/api/v1/public/tee-time-activations/${token}` : undefined, activationUrlIssued: Boolean(token) });
+    imported.push({ id, externalReservationId: externalId, startsAt: new Date(startsAt).toISOString(), playerCount, status, activationUrl: token ? `${env.PUBLIC_ORIGIN}/tee-time/activate/?token=${encodeURIComponent(token)}` : undefined, activationUrlIssued: Boolean(token) });
   }
   return json({ teeTimes: imported, sourceBoundary: 'Imported reservation references only. The external tee sheet remains authoritative for availability, price, payment, and reservation validity.' }, 201);
 }
@@ -1315,6 +1319,10 @@ export default {
     if (url.pathname.match(/^\/api\/v1\/public\/tee-time-activations\/[^/]+$/) && request.method === 'GET') return withCors(await getTeeTimeActivation(env, url.pathname.split('/')[6] ?? ''), request, env);
     if (url.pathname.match(/^\/api\/v1\/taps\/[^/]+$/) && request.method === 'GET') return withCors(await resolveTap(env, url.pathname.split('/')[4] ?? ''), request, env);
     if (!url.pathname.startsWith('/api/v1/')) return withCors(error('Not found.', 404, 'NOT_FOUND'), request, env);
+
+    const identity = await readStateOfStickAssertion(request, env);
+    if (identity instanceof Response) return withCors(identity, request, env);
+    if (identity) verifiedIdentityRequests.add(request);
 
     let response: Response;
     if (url.pathname === '/api/v1/operator-plans' && request.method === 'GET') {
