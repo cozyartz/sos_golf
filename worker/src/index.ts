@@ -7,11 +7,13 @@ import { calculateHandicapStableford, calculateProvisionalCourseHandicap, resolv
 import { createOperatorCheckout, stripeObjectString, verifyStripeWebhook, type StripeEvent } from './stripe';
 import { platformEventStatement } from './platform';
 import { readStateOfStickAssertion } from './identity';
+import type { PlatformIdentityClaims } from '../../src/lib/platform-contract';
 import { golferPlans } from '../../src/lib/membership';
 import { canTransitionTeeTimeStatus, isTeeTimePlayerCount, isTeeTimeSource, isTeeTimeStatus, type TeeTimeStatus } from '../../src/lib/tee-times';
 
 type JsonObject = Record<string, unknown>;
 const verifiedIdentityRequests = new WeakSet<Request>();
+const verifiedIdentities = new WeakMap<Request, PlatformIdentityClaims>();
 
 type RoundInput = {
   courseId: string;
@@ -132,6 +134,33 @@ function requireWriteAccess(request: Request, env: Env): Response | null {
   const authorization = request.headers.get('authorization');
   if (authorization !== `Bearer ${writeToken}`) return error('A valid service authorization token is required.', 401, 'UNAUTHORIZED');
   return null;
+}
+
+function verifiedIdentityFor(request: Request): PlatformIdentityClaims | null {
+  return verifiedIdentities.get(request) ?? null;
+}
+
+function hasRole(identity: PlatformIdentityClaims, ...roles: string[]): boolean {
+  return roles.some((role) => identity.roles.includes(role));
+}
+
+function requireOperatorAccess(request: Request): Response | null {
+  const identity = verifiedIdentityFor(request);
+  if (!identity?.organizationId) return error('Organization membership is required.', 403, 'ORGANIZATION_REQUIRED');
+  if (!hasRole(identity, 'operator', 'operator_admin', 'organization_admin', 'owner', 'staff')) return error('Operator permission is required.', 403, 'OPERATOR_PERMISSION_REQUIRED');
+  return null;
+}
+
+async function checkIdentitySession(env: Env, identity: PlatformIdentityClaims): Promise<Response | null> {
+  try {
+    const session = await env.DB.prepare('SELECT person_id, expires_at, revoked_at FROM golf_platform_identity_sessions WHERE session_id = ?1').bind(identity.sessionId).first<{ person_id: string; expires_at: string; revoked_at: string | null }>();
+    if (!session) return null;
+    if (session.person_id !== identity.personId || Date.parse(session.expires_at) <= Date.now() || session.revoked_at) return error('The State of Stick session is no longer active.', 401, 'SESSION_REVOKED');
+    return null;
+  } catch (cause) {
+    console.error('[golf identity session check]', cause);
+    return error('Identity session verification is temporarily unavailable.', 503, 'IDENTITY_SESSION_UNAVAILABLE');
+  }
 }
 
 async function readJson(request: Request): Promise<JsonObject | Response> {
@@ -1322,7 +1351,31 @@ export default {
 
     const identity = await readStateOfStickAssertion(request, env);
     if (identity instanceof Response) return withCors(identity, request, env);
-    if (identity) verifiedIdentityRequests.add(request);
+    if (identity) {
+      const sessionError = await checkIdentitySession(env, identity);
+      if (sessionError) return withCors(sessionError, request, env);
+      // Route handlers consume only this canonicalized request. The two legacy
+      // headers remain a compatibility transport, but their values are now
+      // populated from the verified State of Stick assertion, never trusted
+      // from the browser.
+      const headers = new Headers(request.headers);
+      headers.delete('x-state-of-stick-person-id');
+      headers.delete('x-state-of-stick-organization-id');
+      headers.set('x-state-of-stick-person-id', identity.personId);
+      if (identity.organizationId) headers.set('x-state-of-stick-organization-id', identity.organizationId);
+      // The standard Request constructor and Workers' incoming Request types
+      // differ only in Cloudflare's inbound metadata generic.
+      request = new Request(request, { headers }) as typeof request;
+      verifiedIdentityRequests.add(request);
+      verifiedIdentities.set(request, identity);
+    }
+
+    const operatorRoute = url.pathname.match(/^\/api\/v1\/(courses\/[^/]+\/(?:tee-times|publication|map-layers|knowledge|assistant|question-insights|tap-points|tap-events|announcements|services|service-requests|operator-profile|operator-review|operator-metrics|billing)|tee-times\/[^/]+\/status|course-claims(?:\/[^/]+\/review)?$)/);
+    const golferServiceRequest = url.pathname.endsWith('/service-requests') && request.method === 'POST';
+    if (operatorRoute && !golferServiceRequest && request.method !== 'OPTIONS') {
+      const operatorError = requireOperatorAccess(request);
+      if (operatorError) return withCors(operatorError, request, env);
+    }
 
     let response: Response;
     if (url.pathname === '/api/v1/operator-plans' && request.method === 'GET') {

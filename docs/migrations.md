@@ -13,5 +13,10 @@
 - `0011_golf_operator_billing.sql` — Stripe customer/subscription references, verified event ledger, and Connected Course entitlement state.
 - `0012_platform_integration_outbox.sql` — retry-safe golf event outbox for the State of Stick platform analytics, consent, retention, metering, and integration boundary.
 - `0013_course_publication_workflow.sql` — operator-controlled course publication state for public profiles, SEO, and discovery.
+- `0014_golfer_entitlement_projection.sql` — read-only State of Stick entitlement projection and AI usage ledger.
+- `0015_tee_time_activation.sql` — tee-time integration references, player claims, and activation events.
+- `0016_tee_time_round_binding.sql` — idempotent tee-time-to-round binding.
+- `0017_service_tee_time_binding.sql` — preserves tee-time context on golfer service requests.
+- `0018_platform_identity_sessions.sql` — optional State of Stick session expiry/revocation projection.
 
 Wrangler applies all pending migrations in order. Review the complete pending set before applying against D1. Phase 2 changes are source-only until an operator explicitly approves local or remote migration application.

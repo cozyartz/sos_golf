@@ -60,3 +60,13 @@ development-only and is not an identity system.
 The central adapter still needs to issue this assertion after verifying the
 State of Stick session and revocation state. No browser-controlled plan,
 person, organization, or role value is trusted by Golf.
+
+Golf now canonicalizes the legacy identity headers from the verified claims
+before route dispatch, and operator routes require an organization claim plus
+an operator-capable central role (`operator`, `operator_admin`,
+`organization_admin`, `owner`, or `staff`). A golfer service request remains a
+player action and is not covered by that operator gate. Migration `0018`
+provides an optional session-revocation projection; when State of Stick syncs
+a session row, Golf denies it after expiry or revocation. Missing rows remain
+valid because the signed assertion is the authority until the sync projection
+is populated.
