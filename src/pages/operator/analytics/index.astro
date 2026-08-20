@@ -1,0 +1,44 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+---
+<Layout title="Operator Analytics — State of Stick Golf" description="Live course activity, service, and Golf Agent metrics from authorized platform events." eyebrow="STATE OF STICK GOLF / OPERATOR ANALYTICS">
+  <section class="analytics-page">
+    <div class="analytics-shell">
+      <div class="analytics-kicker">AUTHORIZED COURSE SIGNALS</div>
+      <h1>See what the<br /><em>course is telling you.</em></h1>
+      <p class="analytics-lead">A live operator view of recorded taps, golfers, rounds, service activity, and unanswered course questions. Every number is labeled as platform activity—not settled revenue or a promise of adoption.</p>
+      <div class="analytics-toolbar"><label>COURSE ID<input id="course-id" value="cedar-ridge" /></label><button class="analytics-button" id="refresh" type="button">Refresh analytics ↗</button></div>
+      <div class="analytics-status" id="status" role="status" aria-live="polite">Connect a verified State of Stick operator session to load private analytics.</div>
+      <section class="analytics-card"><div class="analytics-card-head"><div><div class="analytics-kicker">LAST 24 HOURS</div><h2 id="course-label">No course loaded</h2></div><span id="window-label">No window loaded</span></div><div id="metric-grid" class="metric-grid"><div class="metric-empty">No private metrics loaded.</div></div></section>
+      <section class="analytics-lower"><article class="analytics-card"><div class="analytics-kicker">DETERMINISTIC COURSE INTELLIGENCE</div><h2>What needs attention?</h2><p id="insight" class="insight-empty">The Golf Agent summary will appear after a verified operator session loads approved course activity.</p><div class="analytics-boundary">Operator analytics can surface recorded activity. It does not decide official scores, publish facts, move money, or replace the course’s source systems.</div></article><article class="analytics-card"><div class="analytics-kicker">NEXT PILOT ACTION</div><h2>Close the loop.</h2><ul class="pilot-list"><li>Review submitted rounds</li><li>Respond to service requests</li><li>Approve course knowledge</li><li>Investigate unanswered questions</li><li>Compare activity after the next tee-sheet import</li></ul><a class="analytics-link" href="/operator/rounds/">Open round review ↗</a></article></section>
+    </div>
+  </section>
+</Layout>
+
+<style>
+  .analytics-page { min-height: calc(100vh - 160px); padding: 58px 0 90px; background: #eef1e6; color: #172019; }
+  .analytics-shell { width: min(1080px, calc(100% - 44px)); margin: 0 auto; }
+  .analytics-kicker { color: #a65332; font: 10px 'DM Mono', monospace; letter-spacing: .14em; }
+  h1 { max-width: 820px; margin: 14px 0; color: #1d4935; font-size: clamp(48px, 8vw, 92px); line-height: .9; letter-spacing: -.08em; } h1 em { color: #c66e48; font-style: normal; }
+  .analytics-lead { max-width: 720px; color: #66736a; font-size: 17px; line-height: 1.55; }
+  .analytics-toolbar { display: flex; gap: 10px; align-items: end; max-width: 600px; margin: 32px 0 12px; } label { display: grid; flex: 1; gap: 7px; color: #66736a; font: 10px 'DM Mono', monospace; letter-spacing: .08em; } input { padding: 12px; border: 1px solid #c7cec2; background: #fffdf7; color: #172019; font: 14px system-ui, sans-serif; }
+  .analytics-button { padding: 13px 17px; border: 1px solid #1d4935; background: #1d4935; color: #f7f5eb; font: 700 11px 'DM Mono', monospace; cursor: pointer; } .analytics-button:disabled { cursor: wait; opacity: .55; }
+  .analytics-status { min-height: 24px; margin: 12px 0 22px; color: #a65332; font: 11px 'DM Mono', monospace; }
+  .analytics-card { padding: 26px; border: 1px solid #cbd1c6; background: #fffdf7; box-shadow: 0 18px 45px #17201910; } .analytics-card h2 { margin: 8px 0 12px; color: #1d4935; font-size: clamp(27px, 4vw, 44px); letter-spacing: -.07em; } .analytics-card-head { display: flex; justify-content: space-between; gap: 20px; align-items: start; } .analytics-card-head > span { color: #66736a; font: 10px 'DM Mono', monospace; }
+  .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 22px; } .metric { padding: 18px; background: #edf0df; border-top: 4px solid #1d4935; } .metric strong { display: block; color: #1d4935; font-size: 34px; letter-spacing: -.07em; } .metric span { display: block; margin-top: 7px; color: #66736a; font: 10px 'DM Mono', monospace; line-height: 1.4; } .metric-empty, .insight-empty { color: #66736a; font: 11px 'DM Mono', monospace; }
+  .analytics-lower { display: grid; grid-template-columns: 1.2fr .8fr; gap: 12px; margin-top: 12px; } .analytics-card p { color: #66736a; line-height: 1.55; } .analytics-boundary { margin-top: 20px; padding: 14px; border-left: 3px solid #c66e48; background: #f3f4ec; color: #66736a; font: 11px 'DM Mono', monospace; line-height: 1.5; } .pilot-list { display: grid; gap: 10px; margin: 18px 0 24px; padding-left: 18px; color: #66736a; font-size: 13px; line-height: 1.45; } .analytics-link { color: #1d4935; font: 700 11px 'DM Mono', monospace; }
+  @media (max-width: 760px) { .analytics-toolbar, .analytics-lower { display: grid; grid-template-columns: 1fr; } .metric-grid { grid-template-columns: 1fr 1fr; } .analytics-card { padding: 20px; } }
+</style>
+
+<script is:inline>
+  const apiOrigin = 'https://golf-api.stateofstick.co';
+  const assertion = () => window.StateOfStick?.identityAssertion ?? document.querySelector('meta[name="state-of-stick-identity"]')?.getAttribute('content') ?? '';
+  const status = document.querySelector('#status');
+  const setStatus = (message) => { if (status) status.textContent = message; };
+  const courseId = () => document.querySelector('#course-id')?.value?.trim() ?? '';
+  const request = async (path) => { if (!assertion()) throw new Error('Connect a verified State of Stick operator session first.'); const response = await fetch(`${apiOrigin}${path}`, { headers: { Accept: 'application/json', 'x-state-of-stick-identity-assertion': assertion() } }); const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result?.error?.message ?? 'The analytics request failed.'); return result; };
+  const metricLabels = [['tapEvents', 'Tap events'], ['uniqueGolfers', 'Unique golfers'], ['activeRounds', 'Active rounds'], ['serviceRequests', 'Service requests'], ['completedServiceRequests', 'Completed services'], ['golfAgentQuestions', 'Golf Agent questions'], ['unansweredGolfAgentQuestions', 'Unanswered questions'], ['recordedCompletedServiceValueCents', 'Recorded service value (cents)']];
+  const renderMetrics = (metrics) => { const grid = document.querySelector('#metric-grid'); if (!grid) return; grid.innerHTML = metricLabels.map(([key, label]) => `<div class="metric"><strong>${Number(metrics[key] ?? 0).toLocaleString()}</strong><span>${label}</span></div>`).join(''); };
+  const refresh = async () => { try { setStatus('Loading authorized course analytics…'); const id = encodeURIComponent(courseId()); const [metrics, intelligence] = await Promise.all([request(`/api/v1/courses/${id}/operator-metrics`), request(`/api/v1/courses/${id}/intelligence`)]); document.querySelector('#course-label').textContent = metrics.courseId; document.querySelector('#window-label').textContent = `Since ${new Date(metrics.window.since).toLocaleString()}`; renderMetrics(metrics.metrics); document.querySelector('#insight').textContent = intelligence.insight?.interpretation ?? 'No deterministic attention summary was returned.'; setStatus('Analytics refreshed from authorized Golf D1 activity.'); } catch (error) { setStatus(error instanceof Error ? error.message : 'Unable to load analytics.'); } };
+  document.querySelector('#refresh')?.addEventListener('click', refresh);
+</script>
