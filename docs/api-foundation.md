@@ -51,10 +51,10 @@ The intended production shape is:
 - D1 database: `sticklink-golf`
 - Frontend origin: `https://golf.stateofstick.co`
 
-The Worker route is configured in Wrangler. The DNS zone still needs a
-proxied `api.golf` record before the custom API hostname can resolve. Add that
-record in Cloudflare DNS, then verify `/health`, `/api/v1/courses`, and the
-live-round endpoint through the custom hostname.
+The Worker route is configured in Wrangler, and Cloudflare DNS now has a
+proxied CNAME for `api.golf` targeting `stateofstick.pages.dev`. Allow
+Cloudflare's certificate provisioning to complete, then verify `/health`,
+`/api/v1/courses`, and the live-round endpoint through the custom hostname.
 
 ```text
 golf.stateofstick.co              Pages frontend
