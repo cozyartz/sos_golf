@@ -5,6 +5,7 @@ import { buildGolfAgentPrompt, extractGolfAgentText } from '../../src/lib/agent'
 import { calculateServiceTotal, canTransitionServiceRequest, type GolfServiceType, type ServiceRequestStatus } from '../../src/lib/services';
 import { calculateHandicapStableford, calculateProvisionalCourseHandicap, resolveCompetition, type CompetitionFormat } from '../../src/lib/competition';
 import { createOperatorCheckout, stripeObjectString, verifyStripeWebhook, type StripeEvent } from './stripe';
+import { platformEventStatement } from './platform';
 
 type JsonObject = Record<string, unknown>;
 
@@ -214,8 +215,11 @@ async function createCourseClaim(request: Request, env: Env): Promise<Response> 
   }
   const workflows = Array.isArray(body.requestedWorkflows) ? body.requestedWorkflows.filter((value): value is string => typeof value === 'string' && value.length <= 80).slice(0, 12) : [];
   const id = `claim-${crypto.randomUUID()}`; const now = new Date().toISOString();
-  await env.DB.prepare(`INSERT INTO golf_course_claim_requests (id, course_id, requested_name, region, requested_by_person_id, organization_id, requested_workflows_json, status, created_at, updated_at)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, ?8)`).bind(id, courseId, requestedName, region, actorId, organizationId, JSON.stringify(workflows), now).run();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO golf_course_claim_requests (id, course_id, requested_name, region, requested_by_person_id, organization_id, requested_workflows_json, status, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, ?8)`).bind(id, courseId, requestedName, region, actorId, organizationId, JSON.stringify(workflows), now),
+    platformEventStatement(env.DB, { eventId: `platform-${id}`, eventName: 'golf.course_claim_requested', organizationId, courseId, aggregateType: 'course_claim', aggregateId: id, occurredAt: now, payload: { requestedName, region, workflowCount: workflows.length } }),
+  ]);
   return json({ claim: { id, courseId, requestedName, region, requestedWorkflows: workflows, status: 'pending', publishing: 'requires_explicit_operator_review' } }, 201);
 }
 
@@ -579,7 +583,12 @@ async function recordTapEvent(request: Request, env: Env, courseId: string): Pro
   if (typeof body.tapPointId !== 'string' || !isValidId(body.tapPointId.replace(/^tap-/, 'tpx'))) return error('tapPointId is required.', 400, 'INVALID_INPUT');
   const tap = await env.DB.prepare("SELECT id, location_type FROM golf_sticklink_locations WHERE id = ?1 AND course_id = ?2 AND approved_by_operator = 1 AND status = 'active'").bind(body.tapPointId, courseId).first<{ id: string; location_type: string }>(); if (!tap) return error('Active approved tap point not found.', 404, 'NOT_FOUND');
   const id = `tap-event-${crypto.randomUUID()}`; const now = new Date().toISOString(); const context = ['tee', 'green'].includes(tap.location_type) ? 'hole' : tap.location_type;
-  await env.DB.prepare(`INSERT INTO golf_tap_events (id, tap_point_id, course_id, person_id, round_id, context, client_event_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`).bind(id, tap.id, courseId, typeof body.personId === 'string' && isValidPersonId(body.personId) ? body.personId : null, typeof body.roundId === 'string' ? body.roundId : null, context, typeof body.clientEventId === 'string' ? body.clientEventId.slice(0, 120) : null, now).run();
+  const personId = typeof body.personId === 'string' && isValidPersonId(body.personId) ? body.personId : null;
+  const roundId = typeof body.roundId === 'string' ? body.roundId : null;
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO golf_tap_events (id, tap_point_id, course_id, person_id, round_id, context, client_event_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`).bind(id, tap.id, courseId, personId, roundId, context, typeof body.clientEventId === 'string' ? body.clientEventId.slice(0, 120) : null, now),
+    platformEventStatement(env.DB, { eventId: `platform-${id}`, eventName: 'golf.tap_interaction', courseId, aggregateType: 'tap_event', aggregateId: id, occurredAt: now, payload: { tapPointId: tap.id, context, hasPerson: Boolean(personId), hasRound: Boolean(roundId) } }),
+  ]);
   return json({ tapEvent: { id, tapPointId: tap.id, courseId, context, createdAt: now } }, 201);
 }
 
@@ -693,6 +702,7 @@ async function createRound(request: Request, env: Env): Promise<Response> {
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`)
       .bind(roundId, score.hole, score.strokes, score.tapVerified ? 1 : 0, score.witnessConfirmed ? 1 : 0, score.proofNote ?? null, now)),
   ];
+  if (organizationId) batch.push(platformEventStatement(env.DB, { eventId: `platform-${roundId}`, eventName: 'golf.round_submitted', organizationId, courseId: input.courseId, aggregateType: 'round', aggregateId: roundId, occurredAt: now, payload: { format: input.format, scoreCount: input.scores.length, personId: input.stateOfStickPersonId } }));
   await env.DB.batch(batch);
   return json({ round: { id: roundId, status: 'submitted', courseId: input.courseId, format: input.format, scores: input.scores, clientRoundId: input.clientRoundId ?? null } }, 201);
 }
@@ -822,6 +832,7 @@ async function createServiceRequest(request: Request, env: Env, courseId: string
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO golf_service_requests (id, course_id, organization_id, service_id, person_id, round_id, status, quantity, note, fulfillment, total_cents, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'requested', ?7, ?8, ?9, ?10, ?11, ?11)`).bind(id, courseId, service.organization_id, service.id, personId, roundId, quantity, note, fulfillment, totalCents, now),
     env.DB.prepare(`INSERT INTO golf_service_request_events (id, request_id, organization_id, actor_person_id, from_status, to_status, note, created_at) VALUES (?1, ?2, ?3, ?4, NULL, 'requested', ?5, ?6)`).bind(`service-event-${crypto.randomUUID()}`, id, service.organization_id, personId, note, now),
+    platformEventStatement(env.DB, { eventId: `platform-${id}`, eventName: 'golf.service_requested', organizationId: service.organization_id, courseId, aggregateType: 'service_request', aggregateId: id, occurredAt: now, payload: { serviceId: service.id, serviceType: 'operator_service', quantity, fulfillment, totalCents, hasNote: Boolean(note) } }),
   ]);
   return json({ request: { id, courseId, serviceId: service.id, status: 'requested', quantity, fulfillment, totalCents, createdAt: now } }, 201);
 }
