@@ -30,6 +30,14 @@ Golf is the vertical experience, not a second platform. In a connected implement
 
 The product is designed for participation, discovery, sponsor activation, and course commerce. It does not implement wagering, odds, prize pools, payout balances, or entry-fee-to-prize mechanics.
 
+## Free-first architecture
+
+The golf network is designed to feel national before it depends on paid infrastructure. The map contract supports course boundaries, holes, tees, greens, hazards, cart paths, StickLink points, league overlays, and dated imagery metadata. The default experience is a local SVG/GeoJSON-compatible course diagram, so a course remains useful when no satellite source is available.
+
+Pending rounds use browser IndexedDB for offline score entry, tap verification, witness confirmation, retry, and duplicate-safe sync. No secrets are stored there. Deterministic round summaries and warnings are generated only from supplied scores and course data; trusted facts, suggestions, and unverified observations remain visibly separate.
+
+Public course discovery and approved map, imagery, and StickLink reads are exposed by the existing Worker API. Write routes remain authenticated. Geometry is operator-approved context and never replaces official scoring, handicap, yardage, or league records. See [`docs/map-architecture.md`](docs/map-architecture.md) for attribution, licensing, and the future satellite-provider boundary.
+
 ## Implementation plan
 
 The build sequence for the portable golf network is documented in [`docs/implementation-plan.md`](docs/implementation-plan.md). The first product slice is a multi-course season with explicit score trust levels and a player-owned passport.

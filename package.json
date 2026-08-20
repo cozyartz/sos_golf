@@ -6,6 +6,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "check": "astro check",
+    "test": "node --experimental-strip-types --test tests/**/*.test.ts",
     "api:dev": "npx wrangler dev --config worker/wrangler.jsonc",
     "api:types": "npx wrangler types worker/worker-configuration.d.ts --config worker/wrangler.jsonc --include-runtime=false",
     "api:check": "tsc -p worker/tsconfig.json --noEmit"
