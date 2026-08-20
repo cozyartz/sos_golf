@@ -1,0 +1,61 @@
+---
+import '../styles/global.css';
+const {
+  title = 'StickLink Golf',
+  description = 'StickLink Golf connects golfers, courses, and physical touchpoints into a living round passport.',
+  eyebrow = 'STATE OF STICK / GOLF',
+  image = '/art/flagstick-tap-medallion.png',
+  type = 'website'
+} = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://golf.stateofstick.co').toString();
+const imageUrl = new URL(image, Astro.site ?? 'https://golf.stateofstick.co').toString();
+const siteName = 'StickLink Golf';
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#172019" />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={imageUrl} />
+    <meta property="og:image:alt" content="Engraved golf flagstick tap medallion beside the green" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={imageUrl} />
+    <script is:inline type="application/ld+json" set:html={JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: siteName,
+      url: 'https://golf.stateofstick.co/',
+      description,
+      publisher: { '@type': 'Organization', name: 'State of Stick, Co.', url: 'https://stateofstick.co/' }
+    })} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <header class="site-header shell">
+      <a class="wordmark" href="/">STICKLINK <span>GOLF</span></a>
+      <nav aria-label="Primary navigation">
+        <a href="/round/cedar-ridge/">Play a round</a>
+        <a href="/passport/">My passport</a>
+        <a href="/league/anywhere/">Play anywhere</a>
+        <a href="/network/">Network</a>
+        <a href="/pitch/">For course owners</a>
+      </nav>
+      <button class="profile-chip" type="button" aria-label="Open golfer profile"><span class="avatar">AC</span><span>Andrea</span><span class="chevron">⌄</span></button>
+    </header>
+    <main>
+      <div class="shell page-eyebrow">{eyebrow}</div>
+      <slot />
+    </main>
+    <footer class="shell site-footer"><span>PHYSICAL THINGS, LIVING STORIES.</span><span>Private pilot · Cedar Ridge · <a href="https://stateofstick.co/" rel="noopener">State of Stick, Co.</a></span></footer>
+  </body>
+</html>

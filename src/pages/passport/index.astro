@@ -1,0 +1,12 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { andrea } from '../../lib/golf';
+---
+<Layout title="My Golf Passport — StickLink Golf" description="A connected golf passport for rounds, course badges, achievements, and collectible golf memories." eyebrow="GOLFER PASSPORT / ANDREA COZART-LUNDIN">
+  <section class="page shell"><div class="eyebrow">YOUR PLAYING HISTORY, WITH A PHYSICAL HOME</div><h1>My Golf Passport</h1><p class="page-lead">Every course you play can leave something behind. Your passport keeps the record connected to the physical objects you carry.</p>
+    <div class="passport-banner"><img src="/art/golf-emblems.png" alt="Three original StickLink Golf collectible emblems" /><div><div class="eyebrow">PHYSICAL PASSPORT / CONNECTED OBJECT</div><h2>Your bag tag is the key.</h2><p>Tap a course emblem, tournament token, or your own StickLink to carry this history with you.</p></div></div><div class="dashboard">
+      <div class="panel"><h2>{andrea.name}'s passport</h2><div class="stat-grid"><div class="stat"><b>{andrea.rounds}</b><span>Rounds</span></div><div class="stat"><b>{andrea.coursesPlayed}</b><span>Courses</span></div><div class="stat"><b>{andrea.achievements}</b><span>Badges</span></div></div><div class="activity"><div class="activity-icon">↗</div><div><b>Cedar Ridge Golf Club</b><small>Round started · Today at 9:42 AM</small></div></div><div class="activity"><div class="activity-icon">✦</div><div><b>Unlocked: Michigan Four</b><small>Four connected courses played</small></div></div><div class="activity"><div class="activity-icon">◎</div><div><b>Northstar Invitational</b><small>Finished 3rd · July 28, 2026</small></div></div></div>
+      <div class="panel"><h2>Collection <span style="color:var(--muted);font-weight:400">/ {andrea.achievements}</span></h2><div class="badge-grid"><div class="badge"><div class="medal">✦</div><span>Michigan Four</span></div><div class="badge"><div class="medal">◉</div><span>First Birdie</span></div><div class="badge"><div class="medal">♧</div><span>Member Guest</span></div><div class="badge"><div class="medal">⌁</div><span>Cedar Ridge</span></div><div class="badge muted"><div class="medal">?</div><span>Hole-in-one</span></div><div class="badge muted"><div class="medal">?</div><span>10 Courses</span></div></div></div>
+    </div>
+  </section>
+</Layout>

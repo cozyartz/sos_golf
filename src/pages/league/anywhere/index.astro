@@ -1,0 +1,56 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import { andrea, leagueStandings, networkCourses, portableLeague } from '../../../lib/golf';
+
+const trustLabel = (trust: string) => trust.replaceAll('_', ' ');
+---
+<Layout title="Play Anywhere League — StickLink Golf" description="A portable golf season where players can compete across participating courses with trusted round records and a shared leaderboard." eyebrow="PORTABLE SEASON / GREAT LAKES OPEN">
+  <section class="page shell">
+    <div class="league-hero">
+      <div>
+        <div class="eyebrow">ONE SEASON · MANY COURSES</div>
+        <h1>Play anywhere.<br /><em>Stay in the game.</em></h1>
+        <p>A connected golf season for players who may never stand on the same fairway—but still want to compete in the same league.</p>
+        <div class="button-row"><a class="button" href="/round/cedar-ridge/">Submit a round ↗</a><a class="button secondary" href="/passport/">Open passport</a></div>
+      </div>
+      <div class="league-token"><span>SEASON ID</span><b>GL-OPEN-2026</b><small>● ACTIVE · {portableLeague.format.toUpperCase()}</small></div>
+    </div>
+
+    <div class="league-summary">
+      <div><span>PLAYERS</span><b>{portableLeague.participantCount}</b><small>Across the network</small></div>
+      <div><span>COURSES</span><b>{portableLeague.courseIds.length}</b><small>Approved places to play</small></div>
+      <div><span>ROUNDS</span><b>{portableLeague.roundsCompleted}</b><small>Submitted this season</small></div>
+      <div><span>FORMAT</span><b>NET</b><small>Stableford context</small></div>
+    </div>
+
+    <div class="league-grid">
+      <div class="panel">
+        <div class="score-panel-head"><h2>Live season standings</h2><span class="live-pill">● UPDATED FROM ROUND RECORDS</span></div>
+        <div class="league-table">
+          <div class="league-row league-header"><span>RANK</span><span>PLAYER</span><span>ROUNDS</span><span>POINTS</span></div>
+          {leagueStandings.map((player, index) => <div class:list={['league-row', { 'league-row-you': player.golferId === andrea.id }]}>
+            <b class="league-rank">{String(index + 1).padStart(2, '0')}</b>
+            <div><strong>{player.name}{player.golferId === andrea.id && ' · YOU'}</strong><small>{player.coursesPlayed} courses · {trustLabel(player.trust)}</small></div>
+            <span>{player.rounds}</span>
+            <b class="league-points">{player.points}</b>
+          </div>)}
+        </div>
+      </div>
+      <aside class="panel">
+        <div class="eyebrow">NETWORK RULE</div>
+        <h2>The course changes.<br />The season stays.</h2>
+        <p class="panel-copy">Each round keeps its course, tees, rating, slope, and evidence. The league applies one shared format after the round is accepted.</p>
+        <div class="trust-list">
+          <div><i class="record-dot orange"></i><span><b>Partner attested</b><small>A playing partner confirms the score.</small></span></div>
+          <div><i class="record-dot green"></i><span><b>Course confirmed</b><small>The participating facility confirms the round.</small></span></div>
+          <div><i class="record-dot lime"></i><span><b>Officially integrated</b><small>Accepted from a connected scoring system.</small></span></div>
+        </div>
+      </aside>
+    </div>
+
+    <section class="league-section">
+      <div class="section-head"><div><div class="eyebrow">APPROVED PLACES TO PLAY</div><h2>Same season.<br />Different fairways.</h2></div><p class="section-intro">A portable season gives courses a way to participate without giving up their existing operations or identity.</p></div>
+      <div class="course-network-grid">{networkCourses.map((course) => <article class="course-network-card"><span>{course.region} · {course.tapPoints} StickLinks</span><h3>{course.name}</h3><p>Accepting Great Lakes Open rounds</p><a class="text-link" href="/course/cedar-ridge/">View course layer ↗</a></article>)}</div>
+    </section>
+  </section>
+</Layout>
