@@ -47,18 +47,18 @@ a Cloudflare secret.
 The intended production shape is:
 
 - Worker: `sticklink-golf-api-production`
-- API hostname: `api.golf.stateofstick.co`
+- API hostname: `golf-api.stateofstick.co`
 - D1 database: `sticklink-golf`
 - Frontend origin: `https://golf.stateofstick.co`
 
-The Worker route is configured in Wrangler, and Cloudflare DNS now has a
-proxied CNAME for `api.golf` targeting `stateofstick.pages.dev`. Allow
-Cloudflare's certificate provisioning to complete, then verify `/health`,
+The Worker route is configured in Wrangler, and Cloudflare DNS uses a proxied
+`golf-api` record. This single-level hostname is intentional: it is covered
+by the zone's active Universal SSL wildcard certificate. Verify `/health`,
 `/api/v1/courses`, and the live-round endpoint through the custom hostname.
 
 ```text
 golf.stateofstick.co              Pages frontend
-api.golf.stateofstick.co          Golf API Worker
+golf-api.stateofstick.co          Golf API Worker
 sticklink-golf                    Golf D1 database
 RoundSession Durable Objects      Active-round/live coordination
 ```

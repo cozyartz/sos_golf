@@ -67,7 +67,7 @@
       },
       "routes": [
         {
-          "pattern": "api.golf.stateofstick.co/*",
+          "pattern": "golf-api.stateofstick.co/*",
           "zone_name": "stateofstick.co"
         }
       ]
