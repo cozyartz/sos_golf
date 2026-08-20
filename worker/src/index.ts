@@ -7,7 +7,7 @@ import { calculateHandicapStableford, calculateProvisionalCourseHandicap, resolv
 import { createOperatorCheckout, stripeObjectString, verifyStripeWebhook, type StripeEvent } from './stripe';
 import { platformEventStatement } from './platform';
 import { golferPlans } from '../../src/lib/membership';
-import { isTeeTimePlayerCount, isTeeTimeSource, isTeeTimeStatus, type TeeTimeStatus } from '../../src/lib/tee-times';
+import { canTransitionTeeTimeStatus, isTeeTimePlayerCount, isTeeTimeSource, isTeeTimeStatus, type TeeTimeStatus } from '../../src/lib/tee-times';
 
 type JsonObject = Record<string, unknown>;
 
@@ -295,6 +295,27 @@ async function getOperatorTeeTimes(request: Request, env: Env, courseId: string)
   const playersByReservation = new Map<string, unknown[]>();
   for (const player of players.results) { const key = String((player as Record<string, unknown>).reservation_id); playersByReservation.set(key, [...(playersByReservation.get(key) ?? []), player]); }
   return json({ course, teeTimes: reservations.results.map((row) => ({ ...row, players: playersByReservation.get(String((row as Record<string, unknown>).id)) ?? [] })), sourceBoundary: 'Operator-only view. Availability, price, payment, and reservation validity remain owned by the external tee sheet.' }, 200, { 'cache-control': 'private, no-store' });
+}
+
+async function updateTeeTimeStatus(request: Request, env: Env, teeTimeId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env); if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id');
+  const actorId = request.headers.get('x-state-of-stick-person-id');
+  if (!organizationId || !actorId || !isValidPersonId(actorId)) return error('Organization and actor identity are required.', 400, 'INVALID_INPUT');
+  if (!/^tee-[a-zA-Z0-9-]{8,100}$/.test(teeTimeId)) return error('Tee-time id is invalid.', 400, 'INVALID_INPUT');
+  const body = await readJson(request); if (body instanceof Response) return body;
+  if (!isTeeTimeStatus(body.status)) return error('A valid tee-time status is required.', 400, 'INVALID_INPUT');
+  const current = await env.DB.prepare('SELECT id, course_id, organization_id, status FROM golf_tee_time_reservations WHERE id = ?1 AND organization_id = ?2').bind(teeTimeId, organizationId).first<{ id: string; course_id: string; organization_id: string; status: TeeTimeStatus }>();
+  if (!current) return error('Tee time not found in this organization.', 404, 'NOT_FOUND');
+  if (!canTransitionTeeTimeStatus(current.status, body.status)) return error(`Tee-time status cannot move from ${current.status} to ${body.status}.`, 409, 'INVALID_STATUS_TRANSITION');
+  const now = new Date().toISOString();
+  const note = typeof body.note === 'string' ? body.note.slice(0, 500) : null;
+  await env.DB.batch([
+    env.DB.prepare('UPDATE golf_tee_time_reservations SET status = ?1, updated_at = ?2 WHERE id = ?3 AND organization_id = ?4').bind(body.status, now, teeTimeId, organizationId),
+    env.DB.prepare(`INSERT INTO golf_tee_time_events (id, reservation_id, organization_id, actor_person_id, event_type, details_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`).bind(`tee-event-${crypto.randomUUID()}`, teeTimeId, organizationId, actorId, body.status === 'activated' ? 'activated' : body.status, JSON.stringify({ from: current.status, to: body.status, note }), now),
+    env.DB.prepare(`INSERT INTO golf_operator_audit_events (id, organization_id, course_id, actor_person_id, action, entity_type, entity_id, details_json, created_at) VALUES (?1, ?2, ?3, ?4, 'status_change', 'tee_time', ?5, ?6, ?7)`).bind(`op-${crypto.randomUUID()}`, organizationId, current.course_id, actorId, teeTimeId, JSON.stringify({ from: current.status, to: body.status, note }), now),
+  ]);
+  return json({ teeTime: { id: teeTimeId, courseId: current.course_id, status: body.status, updatedAt: now } });
 }
 
 async function importTeeTimes(request: Request, env: Env, courseId: string): Promise<Response> {
@@ -1300,6 +1321,8 @@ export default {
       response = await importTeeTimes(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tee-times$/) && request.method === 'GET') {
       response = await getOperatorTeeTimes(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/tee-times\/[^/]+\/status$/) && request.method === 'POST') {
+      response = await updateTeeTimeStatus(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/tee-time-activations\/[^/]+\/claim$/) && request.method === 'POST') {
       response = await claimTeeTimeSlot(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/tee-time-activations\/[^/]+\/start-round$/) && request.method === 'POST') {

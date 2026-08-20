@@ -79,6 +79,14 @@ That view includes claimed player slots and linked round IDs, but does not
 change the external reservation. It is the starting point for the operator
 dashboard's arrivals, check-in, service, and tee-time analytics views.
 
+Operators can change a reservation state with:
+
+`POST /api/v1/tee-times/:teeTimeId/status`
+
+Allowed transitions are controlled by the server: reserved → activated →
+checked in → completed, with cancellation/no-show exits where appropriate.
+Every transition records both a tee-time event and an operator audit event.
+
 When a golfer requests an approved food, beverage, or player service during a
 bound round, the service request retains the same tee-time reservation ID. The
 course can therefore measure service activity by booked group without exposing
