@@ -43,6 +43,10 @@ Public course discovery and approved map, imagery, and StickLink reads are expos
 
 The State of Stick Golf Network adds a derived player passport, explicit round verification events and audit history, public/private weekly or seasonal leagues, operator-seeded course discovery, organization-scoped operator actions, announcements, and D1-backed standings with Durable Object live-event overlays. The API keeps D1 authoritative when live coordination is cold. See [`docs/network-model.md`](docs/network-model.md), [`docs/league-rules.md`](docs/league-rules.md), and [`docs/migrations.md`](docs/migrations.md).
 
+## AI-powered State of Stick Golf
+
+State of Stick Golf Intelligence turns authorized round, league, and course records into useful explanations while keeping official facts separate from advisory interpretation. The first provider is a deterministic rules engine, so the product does not require a paid AI service. Every result includes source facts, confidence, timestamp, rule version, provider identifier, and provenance status. See [`docs/golf-intelligence.md`](docs/golf-intelligence.md) and [`docs/product-brand-architecture.md`](docs/product-brand-architecture.md).
+
 ## Implementation plan
 
 The build sequence for the portable golf network is documented in [`docs/implementation-plan.md`](docs/implementation-plan.md). The first product slice is a multi-course season with explicit score trust levels and a player-owned passport.

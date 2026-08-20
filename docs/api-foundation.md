@@ -40,12 +40,29 @@ The API currently exposes:
 - `POST /api/v1/courses/:courseId/operator-review`
 - `POST /api/v1/courses/:courseId/operator-profile`
 - `POST /api/v1/courses/:courseId/announcements`
+- `GET /api/v1/courses/:courseId/services`
+- `POST /api/v1/courses/:courseId/services`
+- `POST /api/v1/courses/:courseId/service-requests`
+- `GET /api/v1/courses/:courseId/service-requests`
+- `POST /api/v1/service-requests/:requestId/status`
 - `POST /api/v1/leagues`
+- `GET /api/v1/players/:personId/intelligence`
+- `GET /api/v1/leagues/:leagueId/intelligence`
+- `GET /api/v1/courses/:courseId/intelligence`
+- `POST /api/v1/assistant`
+- `POST /api/v1/intelligence/:insightId/feedback`
 
 Round creation requires `Authorization: Bearer <GOLF_WRITE_TOKEN>`. This is a
 temporary service-auth seam for the persistent pilot. It is not the final
 golfer identity system. Before production golfer writes are enabled, replace it
 with a verified State of Stick identity and organization-membership check.
+
+Service catalog reads expose only active, published operator services. Service
+catalog writes and request status changes require the operator organization and
+actor headers. A golfer service request requires the temporary write token plus
+the requesting golfer identity. The current slice records requests and
+fulfillment status but does not charge a card, settle funds, or claim a POS
+integration; those remain State of Stick commerce boundaries.
 
 ## Production boundary
 
