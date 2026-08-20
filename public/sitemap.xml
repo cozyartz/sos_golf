@@ -6,6 +6,9 @@
   <url><loc>https://golf.stateofstick.co/course/cedar-ridge/</loc><priority>0.8</priority></url>
   <url><loc>https://golf.stateofstick.co/events/state-of-stick-invitational/</loc><priority>0.8</priority></url>
   <url><loc>https://golf.stateofstick.co/network/</loc><priority>0.7</priority></url>
+  <url><loc>https://golf.stateofstick.co/discover/</loc><priority>0.8</priority></url>
+  <url><loc>https://golf.stateofstick.co/league/anywhere/</loc><priority>0.8</priority></url>
+  <url><loc>https://golf.stateofstick.co/intelligence/</loc><priority>0.6</priority></url>
   <url><loc>https://golf.stateofstick.co/operator/</loc><priority>0.7</priority></url>
   <url><loc>https://golf.stateofstick.co/pitch/</loc><priority>0.7</priority></url>
 </urlset>

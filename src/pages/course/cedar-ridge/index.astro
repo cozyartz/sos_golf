@@ -1,8 +1,9 @@
 ---
 import Layout from '../../../layouts/Layout.astro';
 import { cedarRidge, startingScores } from '../../../lib/golf';
+import { courseDescription, courseStructuredData, courseTitle } from '../../../lib/seo';
 ---
-<Layout title="Cedar Ridge Golf Club — StickLink Golf" description="Explore a connected Cedar Ridge golf round with a provider-neutral course diagram, tap points, league context, and offline-friendly scoring." eyebrow="COURSE PASSPORT / CEDAR RIDGE GOLF CLUB">
+<Layout title={courseTitle(cedarRidge)} description={courseDescription(cedarRidge)} eyebrow="COURSE PASSPORT / CEDAR RIDGE GOLF CLUB" structuredData={courseStructuredData(cedarRidge)}>
   <section class="page shell">
     <div class="course-hero"><div><div class="eyebrow">MAPLE CITY, MICHIGAN · MEMBER GUEST</div><h1>Cedar Ridge</h1><p>18 holes · 6,421 yards · Playing with the Cozart group</p></div><div class="course-meta">PLAYED HERE ✓<br />HOLE 06 OF 18<br /><span style="color:var(--lime)">● ROUND IN PROGRESS</span></div></div>
     <div class="course-network-grid" style="margin-top:28px"><article class="course-network-card"><span>COURSE PASSPORT</span><h3>Every round counts.</h3><p>Your verified moments, league entries, and course history travel with you.</p><a class="button secondary" href="/passport/">Open passport ↗</a></article><article class="course-network-card"><span>ACTIVE COMPETITION</span><h3>Great Lakes Open</h3><p>Stableford · 86 golfers · 214 rounds completed.</p><a class="button secondary" href="/league/anywhere/">View standings ↗</a></article><article class="course-network-card"><span>OPERATOR NOTE</span><h3>Welcome to Cedar Ridge.</h3><p>Hole 09 turn-house ordering is open. Tap points are course-owned.</p><span class="data-source">Source: operator announcement</span></article><article class="course-network-card"><span>ROUND STATUS</span><h3 id="offline-status">Ready to score</h3><p>Score entry is saved on this device when you lose service.</p><button class="button secondary" id="location-button" type="button">Enable location</button></article></div>

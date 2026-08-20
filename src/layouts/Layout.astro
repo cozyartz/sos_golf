@@ -5,7 +5,8 @@ const {
   description = 'StickLink Golf connects golfers, courses, and physical touchpoints into a living round passport.',
   eyebrow = 'STATE OF STICK / GOLF',
   image = '/art/flagstick-tap-medallion.png',
-  type = 'website'
+  type = 'website',
+  structuredData
 } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://golf.stateofstick.co').toString();
 const imageUrl = new URL(image, Astro.site ?? 'https://golf.stateofstick.co').toString();
@@ -39,6 +40,7 @@ const isPitch = Astro.url.pathname === '/pitch' || Astro.url.pathname === '/pitc
       description,
       publisher: { '@type': 'Organization', name: 'State of Stick, Co.', url: 'https://stateofstick.co/' }
     })} />
+    {structuredData && <script is:inline type="application/ld+json" set:html={JSON.stringify(structuredData)} />}
     <title>{title}</title>
   </head>
   <body>
