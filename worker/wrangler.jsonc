@@ -9,6 +9,9 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
+  "ai": {
+    "binding": "AI"
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -47,6 +50,9 @@
           "migrations_dir": "../migrations"
         }
       ],
+      "ai": {
+        "binding": "AI"
+      },
       "durable_objects": {
         "bindings": [
           {

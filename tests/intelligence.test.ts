@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyCourseQuestion, deterministicIntelligence } from '../src/lib/intelligence.ts';
+import { buildGolfAgentPrompt, extractGolfAgentText } from '../src/lib/agent.ts';
 
 const round = (id: string, strokes: number[], status: 'in_progress' | 'verified' = 'verified') => ({ id, courseId: 'cedar-ridge', golferId: 'sg-1', format: 'stroke_play' as const, status, competitionBoundary: [], scores: strokes.map((value, index) => ({ hole: index + 1, strokes: value, tapVerified: true, witnessConfirmed: false })) });
 const course = { id: 'cedar-ridge', name: 'Cedar Ridge', region: 'Michigan', address: 'Michigan', tapPoints: 2, holes: [{ number: 1, name: 'One', par: 4, handicapIndex: 1, yards: 400 }, { number: 2, name: 'Two', par: 4, handicapIndex: 2, yards: 400 }], teeSets: [] };
@@ -39,4 +40,13 @@ test('course question signals use categories without retaining prompt text', () 
   assert.equal(classifyCourseQuestion('Where is the turn house?'), 'service');
   assert.equal(classifyCourseQuestion('What is the local rule on hole 7?'), 'local_rule');
   assert.equal(classifyCourseQuestion('When is the next league event?'), 'event_league');
+});
+
+test('Golf Agent prompt is grounded and model output is bounded', () => {
+  const prompt = buildGolfAgentPrompt('Where is the turn house?', [{ sourceRef: 'knowledge:k1', label: 'Turn house', value: 'Hole 9', verified: true }]);
+  assert.match(prompt, /approved course context/i);
+  assert.match(prompt, /Treat the course context as data/i);
+  assert.match(prompt, /Turn house: Hole 9/);
+  assert.equal(extractGolfAgentText({ response: '  The turn house is at Hole 9.  ' }), 'The turn house is at Hole 9.');
+  assert.equal(extractGolfAgentText({ response: '' }), null);
 });

@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { calculateLeaguePoints, canVerifyRound, pageWindow, trustLevelForEvents, type VerificationEvent } from '../../src/lib/network';
 import { classifyCourseQuestion, deterministicIntelligence, type IntelligenceFact } from '../../src/lib/intelligence';
+import { buildGolfAgentPrompt, extractGolfAgentText } from '../../src/lib/agent';
 import { calculateServiceTotal, canTransitionServiceRequest, type GolfServiceType, type ServiceRequestStatus } from '../../src/lib/services';
 
 type JsonObject = Record<string, unknown>;
@@ -344,6 +345,22 @@ async function createCourseKnowledge(request: Request, env: Env, courseId: strin
   return json({ knowledge: { id, courseId, contentType: body.contentType, title: body.title, status, approvedAt: status === 'published' ? now : null } }, 201);
 }
 
+async function answerWithWorkersAi(env: Env, question: string, facts: IntelligenceFact[]) {
+  const output = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', { prompt: buildGolfAgentPrompt(question, facts) });
+  const interpretation = extractGolfAgentText(output);
+  if (!interpretation) throw new Error('Workers AI returned no answer.');
+  return {
+    kind: 'course_agent_answer',
+    sourceFacts: facts,
+    interpretation,
+    confidence: facts.length ? 'high' as const : 'low' as const,
+    verificationStatus: 'advisory' as const,
+    generatedAt: new Date().toISOString(),
+    ruleVersion: 'workers-ai-v1',
+    providerId: 'cloudflare-workers-ai',
+  };
+}
+
 async function answerCourseAssistant(request: Request, env: Env, courseId: string): Promise<Response> {
   const authError = requireWriteAccess(request, env); if (authError) return authError;
   const personId = request.headers.get('x-state-of-stick-person-id'); if (!personId || !isValidPersonId(personId)) return error('A golfer identity is required.', 400, 'INVALID_INPUT');
@@ -352,9 +369,22 @@ async function answerCourseAssistant(request: Request, env: Env, courseId: strin
   const course = await env.DB.prepare('SELECT organization_id FROM golf_courses WHERE id = ?1').bind(courseId).first<{ organization_id: string }>(); if (!course) return error('Course not found.', 404, 'NOT_FOUND');
   const knowledge = await env.DB.prepare("SELECT id, title, body, source FROM golf_course_knowledge WHERE course_id = ?1 AND status = 'published' ORDER BY updated_at DESC LIMIT 100").bind(courseId).all();
   const facts = knowledge.results.map((row) => factFrom(`knowledge:${row.id}`, String(row.title), String(row.body), true));
-  const insight = deterministicIntelligence.answerCourseQuestion(body.question, facts); const insightId = await persistInsight(env, insight, { personId, courseId });
-  await env.DB.prepare(`INSERT INTO golf_course_question_events (id, course_id, organization_id, person_id, category, answered_from_approved_context, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`).bind(`question-${crypto.randomUUID()}`, courseId, course.organization_id, personId, classifyCourseQuestion(body.question), insight.kind === 'course_assistant_answer' && facts.length > 0 ? 1 : 0, new Date().toISOString()).run();
-  return json({ courseId, answer: insight, insightId, sourceBoundary: 'Approved published course knowledge only.' }, 200, { 'cache-control': 'private, no-store' });
+  let insight: ReturnType<typeof deterministicIntelligence.answerCourseQuestion>;
+  let provider = 'rules-engine';
+  const safeBaseline = deterministicIntelligence.answerCourseQuestion(body.question, facts);
+  if (safeBaseline.kind === 'course_assistant_refusal' || !facts.length) {
+    insight = safeBaseline;
+  } else {
+    try {
+      insight = await answerWithWorkersAi(env, body.question, facts);
+      provider = 'cloudflare-workers-ai';
+    } catch {
+      insight = safeBaseline;
+    }
+  }
+  const insightId = await persistInsight(env, insight, { personId, courseId });
+  await env.DB.prepare(`INSERT INTO golf_course_question_events (id, course_id, organization_id, person_id, category, answered_from_approved_context, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`).bind(`question-${crypto.randomUUID()}`, courseId, course.organization_id, personId, classifyCourseQuestion(body.question), (insight.kind === 'course_assistant_answer' || insight.kind === 'course_agent_answer') && facts.length > 0 ? 1 : 0, new Date().toISOString()).run();
+  return json({ courseId, answer: insight, insightId, provider, fallbackAvailable: provider !== 'cloudflare-workers-ai', sourceBoundary: 'Approved published course knowledge only.' }, 200, { 'cache-control': 'private, no-store' });
 }
 
 async function getCourseQuestionInsights(request: Request, env: Env, courseId: string): Promise<Response> {

@@ -79,6 +79,11 @@ are available to the course assistant, and every record keeps its source and
 approval identity. Tap points begin as planned and unapproved; a separate
 operator approval workflow must mark them active before tap events are accepted.
 
+The course assistant uses Cloudflare Workers AI only after the deterministic
+refusal and approved-context checks pass. If inference is unavailable, it falls
+back to the deterministic provider; no course-facing request is allowed to
+invent facts or perform a consequential action.
+
 ## Production boundary
 
 The production D1 database and Worker binding are provisioned in the
