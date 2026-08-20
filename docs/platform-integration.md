@@ -46,6 +46,12 @@ Still required before production onboarding:
 6. Confirm the Cloudflare account and service binding for the production domain
    before adding a Worker-to-Worker binding.
 
+The typed contract for the verified identity and entitlement snapshot is now
+defined in `src/lib/platform-contract.ts`, with the integration boundary
+documented in `docs/platform-identity-contract.md`. This is a contract and
+fail-closed decision layer, not proof that the central State of Stick session
+service has been connected in production.
+
 ## Course onboarding
 
 The production sequence is:

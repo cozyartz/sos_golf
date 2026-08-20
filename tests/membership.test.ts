@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decideGolferAccess, golferPlans, planFor, planHasFeature } from '../src/lib/membership.ts';
 import { canTransitionTeeTimeStatus, isTeeTimePlayerCount, isTeeTimeSource, isTeeTimeStatus } from '../src/lib/tee-times.ts';
+import { platformFeatureIsAllowed, platformIdentityIsFresh, type PlatformEntitlementSnapshot, type PlatformIdentityClaims } from '../src/lib/platform-contract.ts';
 
 test('network membership keeps basic play available without paid features', () => {
   const plan = planFor('network_member');
@@ -41,4 +42,14 @@ test('tee-time import accepts bounded source values and statuses', () => {
   assert.equal(isTeeTimeStatus('booked'), false);
   assert.equal(canTransitionTeeTimeStatus('reserved', 'activated'), true);
   assert.equal(canTransitionTeeTimeStatus('completed', 'reserved'), false);
+});
+
+test('platform identity and entitlement decisions fail closed without verified freshness', () => {
+  const claims: PlatformIdentityClaims = { issuer: 'state_of_stick', personId: 'person-1', roles: ['golfer'], sessionId: 'session-1', issuedAt: '2026-08-20T12:00:00.000Z', expiresAt: '2026-08-20T13:00:00.000Z' };
+  const snapshot: PlatformEntitlementSnapshot = { personId: 'person-1', plan: 'player_plus', status: 'active', features: ['basic_golf_agent', 'saved_rounds'], aiQuestionsRemaining: 3, syncedAt: '2026-08-20T12:00:00.000Z', source: 'state_of_stick' };
+  assert.equal(platformIdentityIsFresh(claims, Date.parse('2026-08-20T12:30:00.000Z')), true);
+  assert.equal(platformIdentityIsFresh(claims, Date.parse('2026-08-20T14:00:00.000Z')), false);
+  assert.equal(platformFeatureIsAllowed(snapshot, 'basic_golf_agent'), true);
+  assert.equal(platformFeatureIsAllowed({ ...snapshot, aiQuestionsRemaining: 0 }, 'basic_golf_agent'), false);
+  assert.equal(platformFeatureIsAllowed(null, 'saved_rounds'), false);
 });
