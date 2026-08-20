@@ -75,6 +75,11 @@ The API currently exposes:
 - `POST /api/v1/courses/:courseId/tap-points/:tapPointId/status`
 - `POST /api/v1/courses/:courseId/tap-events`
 
+The player passport route is a private read. It requires the requesting
+golfer's verified State of Stick identity to match `:personId`; it does not
+serve public profiles. Any future public passport must use a separate,
+explicitly opt-in projection that excludes private activity and memberships.
+
 Local development may use `Authorization: Bearer <GOLF_WRITE_TOKEN>` as a
 temporary service-auth seam. Production writes require a verified State of
 Stick identity assertion and the applicable organization or golfer boundary;

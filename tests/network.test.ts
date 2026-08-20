@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateLeaguePoints, canVerifyRound, canViewLeague, pageWindow, rankWithTies, stablefordForHole } from '../src/lib/network.ts';
+import { calculateLeaguePoints, canVerifyRound, canViewLeague, canViewPlayerData, pageWindow, rankWithTies, stablefordForHole } from '../src/lib/network.ts';
 
 test('a round cannot become verified without a verification event', () => {
   assert.equal(canVerifyRound('submitted', []), false);
@@ -19,4 +19,10 @@ test('pagination is bounded and private leagues require enrollment', () => {
   assert.equal(canViewLeague('private', 'sg-1', ['sg-1']), true);
   assert.equal(canViewLeague('private', 'sg-2', ['sg-1']), false);
   assert.equal(canViewLeague('public', undefined, []), true);
+});
+
+test('player data requires the matching requester identity', () => {
+  assert.equal(canViewPlayerData('sg-1', 'sg-1'), true);
+  assert.equal(canViewPlayerData('sg-2', 'sg-1'), false);
+  assert.equal(canViewPlayerData(undefined, 'sg-1'), false);
 });

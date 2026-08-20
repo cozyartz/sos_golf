@@ -6,7 +6,7 @@ Phase 2 extends the Phase 1 golf application without creating a second identity 
 
 `state_of_stick_person_id` and `state_of_stick_organization_id` remain external identity and organization references. Golf stores golf records keyed to those references; it does not create passwords, accounts, or a parallel membership directory. Public player profiles are opt-in through the existing privacy boundary. Private league standings require the requesting person to be enrolled.
 
-The player passport is a read model: rounds, courses, holes, verified rounds, personal bests, streaks, league memberships, and activity are derived from authoritative D1 records. A shareable profile may expose only the public subset.
+The player passport is a read model: rounds, courses, holes, verified rounds, personal bests, streaks, league memberships, and activity are derived from authoritative D1 records. The current API exposes passport details only to the matching verified golfer; a future shareable profile must use a separate explicit public projection and may not reuse the private passport query.
 
 ## Round trust
 

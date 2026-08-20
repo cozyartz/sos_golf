@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { calculateLeaguePoints, canVerifyRound, pageWindow, trustLevelForEvents, type VerificationEvent } from '../../src/lib/network';
+import { calculateLeaguePoints, canVerifyRound, canViewPlayerData, pageWindow, trustLevelForEvents, type VerificationEvent } from '../../src/lib/network';
 import { classifyCourseQuestion, deterministicIntelligence, type IntelligenceFact } from '../../src/lib/intelligence';
 import { buildGolfAgentPrompt, extractGolfAgentText } from '../../src/lib/agent';
 import { calculateServiceTotal, canTransitionServiceRequest, type GolfServiceType, type ServiceRequestStatus } from '../../src/lib/services';
@@ -189,7 +189,7 @@ async function persistInsight(env: Env, insight: ReturnType<typeof deterministic
 async function requirePlayerAccess(request: Request, env: Env, personId: string): Promise<Response | null> {
   const authError = requireWriteAccess(request, env); if (authError) return authError;
   const requester = request.headers.get('x-state-of-stick-person-id');
-  if (!requester || requester !== personId || !isValidPersonId(requester)) return error('Player data is only available to the requesting golfer.', 403, 'FORBIDDEN');
+  if (!requester || !isValidPersonId(requester) || !canViewPlayerData(requester, personId)) return error('Player data is only available to the requesting golfer.', 403, 'FORBIDDEN');
   return null;
 }
 
@@ -596,17 +596,19 @@ async function recordInsightFeedback(request: Request, env: Env, insightId: stri
 
 async function getCourse(env: Env, id: string): Promise<Response> {
   if (!isValidId(id)) return error('Course id is invalid.', 400, 'INVALID_INPUT');
-  const course = await env.DB.prepare('SELECT * FROM golf_courses WHERE id = ?1').bind(id).first();
+  const course = await env.DB.prepare(`SELECT id, name, region, address, tap_points, latitude, longitude, state_code, difficulty, created_at
+    FROM golf_courses WHERE id = ?1`).bind(id).first();
   if (!course) return error('Course not found.', 404, 'NOT_FOUND');
 
-  const holes = await env.DB.prepare('SELECT * FROM golf_holes WHERE course_id = ?1 ORDER BY hole_number').bind(id).all();
-  const teeSets = await env.DB.prepare('SELECT * FROM golf_tee_sets WHERE course_id = ?1 ORDER BY yardage DESC').bind(id).all();
+  const holes = await env.DB.prepare('SELECT course_id, hole_number, name, par, handicap_index, yards, challenge FROM golf_holes WHERE course_id = ?1 ORDER BY hole_number').bind(id).all();
+  const teeSets = await env.DB.prepare('SELECT id, course_id, name, color, rating, slope, yardage FROM golf_tee_sets WHERE course_id = ?1 ORDER BY yardage DESC').bind(id).all();
   return json({ course: { ...course, holes: holes.results, teeSets: teeSets.results } });
 }
 
 async function getLeague(request: Request, env: Env, id: string): Promise<Response> {
   if (!isValidId(id)) return error('League id is invalid.', 400, 'INVALID_INPUT');
-  const league = await env.DB.prepare('SELECT * FROM golf_leagues WHERE id = ?1').bind(id).first<{ visibility?: string }>();
+  const league = await env.DB.prepare(`SELECT id, name, season, status, format, region, sponsor, visibility, cadence, start_date, end_date, published_at, created_at
+    FROM golf_leagues WHERE id = ?1`).bind(id).first<{ visibility?: string }>();
   if (!league) return error('League not found.', 404, 'NOT_FOUND');
   const personId = request.headers.get('x-state-of-stick-person-id');
   const privateAccessError = await requirePrivateLeagueAccess(request, env, id, league.visibility);
@@ -626,6 +628,7 @@ async function getLeague(request: Request, env: Env, id: string): Promise<Respon
 
 async function getPassport(request: Request, env: Env, personId: string): Promise<Response> {
   if (!isValidPersonId(personId)) return error('Player id is invalid.', 400, 'INVALID_INPUT');
+  const accessError = await requirePlayerAccess(request, env, personId); if (accessError) return accessError;
   const profile = await env.DB.prepare('SELECT state_of_stick_person_id AS id, COUNT(*) AS rounds FROM golf_rounds WHERE state_of_stick_person_id = ?1').bind(personId).first();
   const rounds = await env.DB.prepare(`SELECT r.id, r.course_id, r.status, r.created_at, SUM(s.strokes) AS strokes, COUNT(CASE WHEN s.strokes > 0 THEN 1 END) AS holes_completed
     FROM golf_rounds r LEFT JOIN golf_hole_scores s ON s.round_id = r.id WHERE r.state_of_stick_person_id = ?1 GROUP BY r.id ORDER BY r.created_at DESC LIMIT 50`).bind(personId).all();
@@ -634,7 +637,7 @@ async function getPassport(request: Request, env: Env, personId: string): Promis
   const holes = await env.DB.prepare('SELECT COUNT(*) AS count FROM golf_hole_scores s JOIN golf_rounds r ON r.id = s.round_id WHERE r.state_of_stick_person_id = ?1 AND s.strokes > 0').bind(personId).first();
   const memberships = await env.DB.prepare(`SELECT l.id, l.name, l.season FROM golf_league_enrollments e JOIN golf_leagues l ON l.id = e.league_id WHERE e.person_id = ?1 AND e.status = 'active' ORDER BY l.start_date DESC, l.name`).bind(personId).all();
   const personalBests = rounds.results.filter((round) => round.status === 'verified' && round.strokes !== null).sort((a, b) => Number(a.strokes) - Number(b.strokes)).slice(0, 5);
-  return json({ profile: profile ?? { id: personId, rounds: 0 }, passport: { roundsPlayed: Number(profile?.rounds ?? 0), coursesPlayed: Number(courses?.count ?? 0), holesCompleted: Number(holes?.count ?? 0), verifiedRounds: Number(verified?.count ?? 0), personalBests, currentStreak: Math.min(personalBests.length, 3), leagueMemberships: memberships.results }, activity: rounds.results, shareUrl: `/passport/${personId}/` }, 200, { 'cache-control': request.headers.get('x-state-of-stick-person-id') === personId ? 'private, no-store' : 'public, max-age=30' });
+  return json({ profile: profile ?? { id: personId, rounds: 0 }, passport: { roundsPlayed: Number(profile?.rounds ?? 0), coursesPlayed: Number(courses?.count ?? 0), holesCompleted: Number(holes?.count ?? 0), verifiedRounds: Number(verified?.count ?? 0), personalBests, currentStreak: Math.min(personalBests.length, 3), leagueMemberships: memberships.results }, activity: rounds.results, shareUrl: `/passport/${personId}/` }, 200, { 'cache-control': 'private, no-store' });
 }
 
 async function discoverCourses(env: Env, request: Request): Promise<Response> {
