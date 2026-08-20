@@ -1,0 +1,77 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+---
+
+<Layout title="Operator Tee Times — State of Stick Golf" description="Authenticated tee-time import, refresh, and arrival operations for connected golf courses." eyebrow="STATE OF STICK GOLF / OPERATOR TEE TIMES">
+  <section class="tee-page">
+    <div class="tee-shell">
+      <div class="tee-kicker">AUTHENTICATED OPERATOR CONSOLE</div>
+      <h1>Keep the tee sheet<br /><em>connected.</em></h1>
+      <p class="tee-lead">Import reservation references from the course system, refresh the operator view, and move arrivals through the approved tee-time lifecycle. The external tee sheet remains authoritative for booking and payment.</p>
+      <div class="tee-toolbar">
+        <label>COURSE ID<input id="course-id" value="cedar-ridge" /></label>
+        <label>DATE<input id="tee-date" type="date" /></label>
+        <button class="tee-button" id="refresh" type="button">Refresh tee times ↗</button>
+      </div>
+      <div class="tee-status" id="status" role="status" aria-live="polite">Connect a verified State of Stick operator session to load private tee-time data.</div>
+      <section class="tee-card">
+        <div class="tee-card-head"><div><div class="tee-kicker">IMPORT / CSV-READY JSON CONTRACT</div><h2>Refresh from the tee sheet.</h2></div><span id="course-label">No course loaded</span></div>
+        <p>Use the connector’s normalized reservation payload. Re-importing the same external reservation updates it idempotently and preserves its activation token.</p>
+        <textarea id="import-json" spellcheck="false">&#123;
+  "sourceSystem": "manual_csv",
+  "reservations": [
+    &#123;
+      "externalReservationId": "example-001",
+      "startsAt": "2026-08-21T14:00:00.000Z",
+      "playerCount": 4,
+      "status": "reserved"
+    &#125;
+  ]
+&#125;</textarea>
+        <button class="tee-button" id="import" type="button">Import tee-time references ↗</button>
+      </section>
+      <section class="tee-card">
+        <div class="tee-card-head"><div><div class="tee-kicker">ARRIVAL OPERATIONS</div><h2>Today’s connected arrivals.</h2></div><span id="count">0 reservations</span></div>
+        <div id="tee-list" class="tee-list"><div class="tee-empty">No private tee times loaded.</div></div>
+      </section>
+    </div>
+  </section>
+</Layout>
+
+<style>
+  .tee-page { min-height: calc(100vh - 160px); padding: 58px 0 90px; background: #eef1e6; color: #172019; }
+  .tee-shell { width: min(1080px, calc(100% - 44px)); margin: 0 auto; }
+  .tee-kicker { color: #a65332; font: 10px 'DM Mono', monospace; letter-spacing: .14em; }
+  h1 { max-width: 760px; margin: 14px 0; color: #1d4935; font-size: clamp(48px, 8vw, 92px); line-height: .9; letter-spacing: -.08em; } h1 em { color: #c66e48; font-style: normal; }
+  .tee-lead { max-width: 720px; color: #66736a; font-size: 17px; line-height: 1.55; }
+  .tee-toolbar { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; margin: 32px 0 12px; }
+  label { display: grid; gap: 7px; color: #66736a; font: 10px 'DM Mono', monospace; letter-spacing: .08em; } input, textarea { border: 1px solid #c7cec2; background: #fffdf7; color: #172019; font: 14px system-ui, sans-serif; } input { padding: 12px; } textarea { width: 100%; min-height: 190px; margin: 18px 0; padding: 14px; font: 12px 'DM Mono', monospace; line-height: 1.5; resize: vertical; }
+  .tee-button { padding: 13px 17px; border: 1px solid #1d4935; background: #1d4935; color: #f7f5eb; font: 700 11px 'DM Mono', monospace; cursor: pointer; } .tee-button:disabled { cursor: wait; opacity: .55; }
+  .tee-status { min-height: 24px; margin: 12px 0 22px; color: #a65332; font: 11px 'DM Mono', monospace; }
+  .tee-card { margin-top: 16px; padding: 26px; border: 1px solid #cbd1c6; background: #fffdf7; box-shadow: 0 18px 45px #17201910; } .tee-card h2 { margin: 8px 0; color: #1d4935; font-size: clamp(27px, 4vw, 44px); letter-spacing: -.07em; } .tee-card p { color: #66736a; line-height: 1.5; }
+  .tee-card-head { display: flex; justify-content: space-between; gap: 20px; align-items: start; } .tee-card-head > span { color: #66736a; font: 10px 'DM Mono', monospace; }
+  .tee-list { display: grid; gap: 8px; margin-top: 18px; } .tee-row { display: grid; grid-template-columns: 1.3fr 1fr auto auto; gap: 14px; align-items: center; padding: 14px; border: 1px solid #d8ddd3; background: #f3f4ec; } .tee-row strong { color: #1d4935; } .tee-row small { color: #66736a; font: 10px 'DM Mono', monospace; } .tee-row select { padding: 8px; border: 1px solid #c7cec2; background: #fffdf7; color: #172019; }
+  .tee-empty { padding: 22px; border: 1px dashed #c7cec2; color: #66736a; font: 11px 'DM Mono', monospace; }
+  @media (max-width: 760px) { .tee-toolbar { grid-template-columns: 1fr; } .tee-card-head, .tee-row { grid-template-columns: 1fr; display: grid; } .tee-card { padding: 20px; } }
+</style>
+
+<script is:inline>
+  const apiOrigin = 'https://golf-api.stateofstick.co';
+  const assertion = () => window.StateOfStick?.identityAssertion ?? document.querySelector('meta[name="state-of-stick-identity"]')?.getAttribute('content') ?? '';
+  const status = document.querySelector('#status');
+  const courseId = () => document.querySelector('#course-id')?.value?.trim() ?? '';
+  const headers = () => ({ Accept: 'application/json', 'Content-Type': 'application/json', ...(assertion() ? { 'x-state-of-stick-identity-assertion': assertion() } : {}) });
+  const setStatus = (message) => { if (status) status.textContent = message; };
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+  const request = async (path, options = {}) => { if (!assertion()) throw new Error('Connect a verified State of Stick operator session first.'); const response = await fetch(`${apiOrigin}${path}`, { ...options, headers: { ...headers(), ...(options.headers ?? {}) } }); const result = await response.json(); if (!response.ok) throw new Error(result?.error?.message ?? 'The operator request failed.'); return result; };
+  const render = (teeTimes) => {
+    const list = document.querySelector('#tee-list'); const count = document.querySelector('#count');
+    if (count) count.textContent = `${teeTimes.length} reservation${teeTimes.length === 1 ? '' : 's'}`;
+    if (!list) return;
+    list.innerHTML = teeTimes.length ? teeTimes.map((tee) => `<article class="tee-row"><div><strong>${escapeHtml(tee.starts_at ? new Date(tee.starts_at).toLocaleString() : 'Unknown time')}</strong><small>${escapeHtml(tee.source_system)} · ${escapeHtml(tee.external_reservation_id)}</small></div><span>${escapeHtml(tee.player_count)} players</span><select data-tee-status="${escapeHtml(tee.id)}" aria-label="Status for ${escapeHtml(tee.id)}"><option ${tee.status === 'reserved' ? 'selected' : ''}>reserved</option><option ${tee.status === 'activated' ? 'selected' : ''}>activated</option><option ${tee.status === 'checked_in' ? 'selected' : ''}>checked_in</option><option ${tee.status === 'completed' ? 'selected' : ''}>completed</option><option ${tee.status === 'cancelled' ? 'selected' : ''}>cancelled</option><option ${tee.status === 'no_show' ? 'selected' : ''}>no_show</option></select><small>${escapeHtml(tee.players?.filter((player) => player.state_of_stick_person_id).length ?? 0)} claimed</small></article>`).join('') : '<div class="tee-empty">No reservations match this filter.</div>';
+    list.querySelectorAll('[data-tee-status]').forEach((select) => select.addEventListener('change', async () => { try { await request(`/api/v1/tee-times/${encodeURIComponent(select.dataset.teeStatus)}/status`, { method: 'POST', body: JSON.stringify({ status: select.value }) }); setStatus('Tee-time status updated and audited.'); } catch (error) { setStatus(error instanceof Error ? error.message : 'Status update failed.'); } }));
+  };
+  const refresh = async () => { try { setStatus('Loading private tee times…'); const date = document.querySelector('#tee-date')?.value; const result = await request(`/api/v1/courses/${encodeURIComponent(courseId())}/tee-times${date ? `?date=${encodeURIComponent(date)}` : ''}`); document.querySelector('#course-label').textContent = result.course?.name ?? courseId(); render(result.teeTimes ?? []); setStatus('Tee-time view refreshed from Golf D1.'); } catch (error) { setStatus(error instanceof Error ? error.message : 'Unable to load tee times.'); } };
+  document.querySelector('#refresh')?.addEventListener('click', refresh);
+  document.querySelector('#import')?.addEventListener('click', async () => { try { const body = JSON.parse(document.querySelector('#import-json')?.value ?? ''); const result = await request(`/api/v1/courses/${encodeURIComponent(courseId())}/tee-times/import`, { method: 'POST', body: JSON.stringify(body) }); setStatus(`${result.teeTimes?.length ?? 0} tee-time references imported. Refreshing…`); await refresh(); } catch (error) { setStatus(error instanceof Error ? error.message : 'Import failed.'); } });
+</script>
