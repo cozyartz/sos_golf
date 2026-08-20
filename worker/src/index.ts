@@ -1384,6 +1384,23 @@ async function getPublicCourseProfile(env: Env, slug: string): Promise<Response>
   return json({ profile: { ...course, holes: holes.results, teeSets: tees.results, announcements: announcements.results, services: services.results, leagues: leagues.results, sourceBoundary: 'Only operator-approved published records are included.' } }, 200, { 'cache-control': 'public, max-age=60, s-maxage=300' });
 }
 
+async function getOperatorRounds(request: Request, env: Env, courseId: string): Promise<Response> {
+  const authError = requireWriteAccess(request, env);
+  if (authError) return authError;
+  const organizationId = request.headers.get('x-state-of-stick-organization-id');
+  if (!organizationId || !isValidId(courseId)) return error('Organization and course identity are required.', 400, 'INVALID_INPUT');
+  const course = await env.DB.prepare('SELECT id, name FROM golf_courses WHERE id = ?1 AND organization_id = ?2').bind(courseId, organizationId).first<{ id: string; name: string }>();
+  if (!course) return error('Course not found in this organization.', 404, 'NOT_FOUND');
+  const requestedStatus = new URL(request.url).searchParams.get('status');
+  const status = requestedStatus && ['in_progress', 'submitted', 'verified', 'rejected'].includes(requestedStatus) ? requestedStatus : null;
+  const result = await env.DB.prepare(`SELECT r.id, r.course_id, r.format, r.status, r.state_of_stick_person_id, r.trust_level, r.created_at, r.updated_at,
+      COUNT(s.hole_number) AS holes_completed, COALESCE(SUM(s.strokes), 0) AS strokes
+    FROM golf_rounds r LEFT JOIN golf_hole_scores s ON s.round_id = r.id
+    WHERE r.course_id = ?1 AND r.state_of_stick_organization_id = ?2 AND (?3 IS NULL OR r.status = ?3)
+    GROUP BY r.id ORDER BY r.updated_at DESC LIMIT 100`).bind(courseId, organizationId, status).all();
+  return json({ course: { id: course.id, name: course.name }, rounds: result.results }, 200, { 'cache-control': 'private, no-store' });
+}
+
 async function getRound(request: Request, env: Env, id: string): Promise<Response> {
   if (!/^round-[a-zA-Z0-9-]{8,100}$/.test(id)) return error('Round id is invalid.', 400, 'INVALID_INPUT');
   const authError = requireWriteAccess(request, env);
@@ -1462,7 +1479,7 @@ export default {
       verifiedIdentities.set(request, identity);
     }
 
-    const operatorRoute = url.pathname.match(/^\/api\/v1\/(courses\/[^/]+\/(?:tee-times|publication|map-layers|knowledge|assistant|question-insights|tap-points|tap-events|announcements|services|service-requests|operator-profile|operator-review|operator-metrics|billing)|tee-times\/[^/]+\/status|course-claims(?:\/[^/]+\/review)?$)/);
+    const operatorRoute = url.pathname.match(/^\/api\/v1\/(courses\/[^/]+\/(?:tee-times|rounds|publication|map-layers|knowledge|assistant|question-insights|tap-points|tap-events|announcements|services|service-requests|operator-profile|operator-review|operator-metrics|billing)|tee-times\/[^/]+\/status|rounds\/[^/]+\/verification|course-claims(?:\/[^/]+\/review)?$)/);
     const golferServiceRequest = url.pathname.endsWith('/service-requests') && request.method === 'POST';
     if (operatorRoute && !golferServiceRequest && request.method !== 'OPTIONS') {
       const operatorError = requireOperatorAccess(request);
@@ -1474,6 +1491,8 @@ export default {
       response = await getOperatorPlans(env);
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tee-times\/import$/) && request.method === 'POST') {
       response = await importTeeTimes(request, env, url.pathname.split('/')[4] ?? '');
+    } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/rounds$/) && request.method === 'GET') {
+      response = await getOperatorRounds(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/courses\/[^/]+\/tee-times$/) && request.method === 'GET') {
       response = await getOperatorTeeTimes(request, env, url.pathname.split('/')[4] ?? '');
     } else if (url.pathname.match(/^\/api\/v1\/tee-times\/[^/]+\/status$/) && request.method === 'POST') {

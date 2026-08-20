@@ -1,0 +1,53 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+---
+<Layout title="Operator Round Review — State of Stick Golf" description="Review submitted rounds and attach course verification decisions to the official record." eyebrow="STATE OF STICK GOLF / OPERATOR ROUND REVIEW">
+  <section class="review-page">
+    <div class="review-shell">
+      <div class="review-kicker">AUTHENTICATED OPERATOR REVIEW</div>
+      <h1>Make the score<br /><em>official.</em></h1>
+      <p class="review-lead">Review submitted golfer rounds, inspect the recorded hole count and total, then attach a course decision. The golfer’s score remains separate from operator trust and verification.</p>
+      <div class="review-toolbar">
+        <label>COURSE ID<input id="course-id" value="cedar-ridge" /></label>
+        <label>STATUS<select id="round-status"><option value="submitted">Submitted</option><option value="verified">Verified</option><option value="rejected">Rejected</option><option value="in_progress">In progress</option><option value="">All tracked rounds</option></select></label>
+        <button class="review-button" id="refresh" type="button">Refresh review queue ↗</button>
+      </div>
+      <div class="review-status" id="status" role="status" aria-live="polite">Connect a verified State of Stick operator session to review private round records.</div>
+      <section class="review-card">
+        <div class="review-card-head"><div><div class="review-kicker">COURSE DECISION QUEUE</div><h2 id="course-label">No course loaded</h2></div><span id="count">0 rounds</span></div>
+        <div id="round-list" class="round-list"><div class="round-empty">No private rounds loaded.</div></div>
+      </section>
+    </div>
+  </section>
+</Layout>
+
+<style>
+  .review-page { min-height: calc(100vh - 160px); padding: 58px 0 90px; background: #eef1e6; color: #172019; }
+  .review-shell { width: min(1080px, calc(100% - 44px)); margin: 0 auto; }
+  .review-kicker { color: #a65332; font: 10px 'DM Mono', monospace; letter-spacing: .14em; }
+  h1 { max-width: 760px; margin: 14px 0; color: #1d4935; font-size: clamp(48px, 8vw, 92px); line-height: .9; letter-spacing: -.08em; } h1 em { color: #c66e48; font-style: normal; }
+  .review-lead { max-width: 720px; color: #66736a; font-size: 17px; line-height: 1.55; }
+  .review-toolbar { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; margin: 32px 0 12px; }
+  label { display: grid; gap: 7px; color: #66736a; font: 10px 'DM Mono', monospace; letter-spacing: .08em; } input, select { padding: 12px; border: 1px solid #c7cec2; background: #fffdf7; color: #172019; font: 14px system-ui, sans-serif; }
+  .review-button { padding: 13px 17px; border: 1px solid #1d4935; background: #1d4935; color: #f7f5eb; font: 700 11px 'DM Mono', monospace; cursor: pointer; } .review-button:disabled { cursor: wait; opacity: .55; }
+  .review-status { min-height: 24px; margin: 12px 0 22px; color: #a65332; font: 11px 'DM Mono', monospace; }
+  .review-card { margin-top: 16px; padding: 26px; border: 1px solid #cbd1c6; background: #fffdf7; box-shadow: 0 18px 45px #17201910; } .review-card h2 { margin: 8px 0; color: #1d4935; font-size: clamp(27px, 4vw, 44px); letter-spacing: -.07em; }
+  .review-card-head { display: flex; justify-content: space-between; gap: 20px; align-items: start; } .review-card-head > span { color: #66736a; font: 10px 'DM Mono', monospace; }
+  .round-list { display: grid; gap: 10px; margin-top: 18px; } .round-row { display: grid; grid-template-columns: 1.2fr .8fr .7fr auto; gap: 14px; align-items: center; padding: 15px; border: 1px solid #d8ddd3; background: #f3f4ec; } .round-row strong { color: #1d4935; } .round-row small { display: block; margin-top: 4px; color: #66736a; font: 10px 'DM Mono', monospace; } .round-actions { display: flex; gap: 7px; flex-wrap: wrap; justify-content: end; } .round-actions button { padding: 9px 10px; border: 1px solid #1d4935; background: #1d4935; color: #f7f5eb; font: 700 10px 'DM Mono', monospace; cursor: pointer; } .round-actions button.reject { border-color: #a65332; background: transparent; color: #a65332; }
+  .round-empty { padding: 22px; border: 1px dashed #c7cec2; color: #66736a; font: 11px 'DM Mono', monospace; }
+  @media (max-width: 760px) { .review-toolbar { grid-template-columns: 1fr; } .review-card-head, .round-row { grid-template-columns: 1fr; display: grid; } .review-card { padding: 20px; } .round-actions { justify-content: start; } }
+</style>
+
+<script is:inline>
+  const apiOrigin = 'https://golf-api.stateofstick.co';
+  const assertion = () => window.StateOfStick?.identityAssertion ?? document.querySelector('meta[name="state-of-stick-identity"]')?.getAttribute('content') ?? '';
+  const status = document.querySelector('#status');
+  const setStatus = (message) => { if (status) status.textContent = message; };
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+  const request = async (path, options = {}) => { if (!assertion()) throw new Error('Connect a verified State of Stick operator session first.'); const response = await fetch(`${apiOrigin}${path}`, { ...options, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'x-state-of-stick-identity-assertion': assertion(), ...(options.headers ?? {}) } }); const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result?.error?.message ?? 'The operator request failed.'); return result; };
+  const courseId = () => document.querySelector('#course-id')?.value?.trim() ?? '';
+  const render = (rounds) => { const list = document.querySelector('#round-list'); const count = document.querySelector('#count'); if (count) count.textContent = `${rounds.length} round${rounds.length === 1 ? '' : 's'}`; if (!list) return; list.innerHTML = rounds.length ? rounds.map((round) => `<article class="round-row"><div><strong>${escapeHtml(round.id)}</strong><small>${escapeHtml(round.state_of_stick_person_id)} · ${escapeHtml(round.format)}</small></div><div><strong>${escapeHtml(round.holes_completed)} / 18 holes</strong><small>${escapeHtml(round.strokes)} strokes · ${escapeHtml(round.trust_level)}</small></div><div><strong>${escapeHtml(round.status)}</strong><small>${escapeHtml(new Date(round.updated_at).toLocaleString())}</small></div><div class="round-actions"><button data-review="${escapeHtml(round.id)}" type="button">Verify</button><button class="reject" data-reject="${escapeHtml(round.id)}" type="button">Reject</button></div></article>`).join('') : '<div class="round-empty">No rounds match this review filter.</div>'; list.querySelectorAll('[data-review]').forEach((button) => button.addEventListener('click', () => decide(button.dataset.review, 'operator_review'))); list.querySelectorAll('[data-reject]').forEach((button) => button.addEventListener('click', () => decide(button.dataset.reject, 'round_rejected'))); };
+  const decide = async (roundId, eventType) => { const note = window.prompt(eventType === 'round_rejected' ? 'Reason for rejecting this round:' : 'Verification note (optional):', '') ?? ''; if (eventType === 'round_rejected' && !note.trim()) { setStatus('A rejection reason is required.'); return; } try { await request(`/api/v1/rounds/${encodeURIComponent(roundId)}/verification`, { method: 'POST', body: JSON.stringify({ eventType, note: note.trim(), clientEventId: `operator-${eventType}-${roundId}-${Date.now()}` }) }); setStatus(eventType === 'round_rejected' ? 'Round rejected and audited.' : 'Round verified with operator review evidence.'); await refresh(); } catch (error) { setStatus(error instanceof Error ? error.message : 'Round decision failed.'); } };
+  const refresh = async () => { try { setStatus('Loading private round review queue…'); const selectedStatus = document.querySelector('#round-status')?.value ?? 'submitted'; const query = selectedStatus ? `?status=${encodeURIComponent(selectedStatus)}` : ''; const result = await request(`/api/v1/courses/${encodeURIComponent(courseId())}/rounds${query}`); document.querySelector('#course-label').textContent = result.course?.name ?? courseId(); render(result.rounds ?? []); setStatus('Round review queue refreshed from Golf D1.'); } catch (error) { setStatus(error instanceof Error ? error.message : 'Unable to load rounds.'); } };
+  document.querySelector('#refresh')?.addEventListener('click', refresh);
+</script>
