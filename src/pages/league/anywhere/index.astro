@@ -4,6 +4,21 @@ import { andrea, leagueStandings, networkCourses, portableLeague } from '../../.
 
 const trustLabel = (trust: string) => trust.replaceAll('_', ' ');
 ---
+<style is:global>
+  .portable-match { margin:18px 0; padding:24px; border:1px solid #3d5b49; border-top:4px solid var(--lime); border-radius:10px; background:var(--green); color:#f7f5eb; }
+  .portable-match-head { display:flex; justify-content:space-between; gap:20px; align-items:end; }
+  .portable-match h2 { margin:9px 0 5px; color:#f7f5eb; font-size:28px; letter-spacing:-.06em; }
+  .portable-match p { max-width:590px; margin:0; color:#b9c4b4; font-size:13px; line-height:1.5; }
+  .portable-match-format { color:var(--lime); font:10px 'DM Mono',monospace; letter-spacing:.1em; text-align:right; }
+  .match-card { display:grid; grid-template-columns:1fr auto 1fr; gap:14px; align-items:center; margin-top:22px; }
+  .match-player { padding:17px; border:1px solid #537361; background:#193d2c; }
+  .match-player small,.match-player span { display:block; color:#b9c4b4; font:10px 'DM Mono',monospace; line-height:1.4; }
+  .match-player strong { display:block; margin:7px 0 4px; color:#f7f5eb; font-size:18px; }
+  .match-player b { display:block; margin-top:12px; color:var(--lime); font-size:29px; letter-spacing:-.06em; }
+  .match-vs { color:var(--orange); font:700 12px 'DM Mono',monospace; }
+  .match-boundary { margin-top:16px; padding-top:14px; border-top:1px solid #537361; color:#d8e2d9; font:10px 'DM Mono',monospace; line-height:1.5; }
+  @media (max-width:650px) { .portable-match-head { display:block; }.portable-match-format { margin-top:15px; text-align:left; }.match-card { grid-template-columns:1fr; }.match-vs { text-align:center; } }
+</style>
 <Layout title="Play Anywhere League — StickLink Golf" description="A portable golf season where players can compete across participating courses with trusted round records and a shared leaderboard." eyebrow="PORTABLE SEASON / GREAT LAKES OPEN">
   <section class="page shell">
     <div class="league-hero">
@@ -22,6 +37,8 @@ const trustLabel = (trust: string) => trust.replaceAll('_', ' ');
       <div><span>ROUNDS</span><b>{portableLeague.roundsCompleted}</b><small>Submitted this season</small></div>
       <div><span>FORMAT</span><b>NET</b><small>Stableford · seasonal · public</small></div>
     </div>
+
+    <section class="portable-match" aria-labelledby="match-title"><div class="portable-match-head"><div><div class="eyebrow">CROSS-COURSE MATCH / DEMONSTRATION</div><h2 id="match-title">Same opponent. Different course.</h2><p>Each golfer plays a verified 18-hole round at an eligible course. The network keeps the course, tees, rating, slope, and handicap source attached before comparing the agreed format.</p></div><div class="portable-match-format">STROKE PLAY<br />NET RESULT</div></div><div class="match-card"><article class="match-player"><small>ANDREA · CEDAR RIDGE</small><strong>91 gross</strong><span>Course handicap 17 · provisional player input</span><b>74 net</b></article><div class="match-vs">VS</div><article class="match-player"><small>MARCUS · BEDFORD VALLEY</small><strong>96 gross</strong><span>Course handicap 22 · provisional player input</span><b>74 net</b></article></div><div class="match-boundary">TIE IN THIS DEMO · AI never decides the winner. Official competition requires two verified 18-hole entries and an approved handicap or commissioner workflow. The values shown here are illustrative.</div></section>
 
     <div class="league-grid">
       <div class="panel">
