@@ -9,6 +9,7 @@ dist/
 !.dev.vars.example
 .wrangler/
 .envrc
+AGENTS.md
 *.pem
 *.key
 *.p12
