@@ -13,6 +13,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://golf.stateo
 const imageUrl = new URL(image, Astro.site ?? 'https://golf.stateofstick.co').toString();
 const siteName = 'State of Stick Golf';
 const isPitch = Astro.url.pathname === '/pitch' || Astro.url.pathname === '/pitch/';
+const isHome = Astro.url.pathname === '/' || Astro.url.pathname === '';
 ---
 <!doctype html>
 <html lang="en">
@@ -45,7 +46,8 @@ const isPitch = Astro.url.pathname === '/pitch' || Astro.url.pathname === '/pitc
     {structuredData && <script is:inline type="application/ld+json" set:html={JSON.stringify(structuredData)} />}
     <title>{title}</title>
   </head>
-  <body>
+  <body class:list={{ 'home-page': isHome }}>
+    {isHome && <div class="brand-utility"><span>⚡ WEATHERPROOF COMPOSITE. BUILT TO LAST.</span><span>MADE IN AMERICA · BATTLE CREEK, MI ⚡</span></div>}
     <header class:list={["site-header", "shell", { "site-header-pitch": isPitch }]}>
       <a class="wordmark" href="/" aria-label="State of Stick Golf home"><img src="/brand/golf/sosgolf-logo.png" alt="" /><span>STATE OF STICK <i>/ GOLF</i></span></a>
       {isPitch ? <nav class="pitch-nav" aria-label="Pitch navigation">
