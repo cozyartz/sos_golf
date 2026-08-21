@@ -10,7 +10,7 @@
 
 <p align="center"><img src="https://img.shields.io/badge/State%20of%20Stick-Golf-e85d2f?style=flat-square" alt="State of Stick Golf" /> <img src="https://img.shields.io/badge/Made%20in-Battle%20Creek%2C%20MI-0abab5?style=flat-square" alt="Made in Battle Creek, Michigan" /> <img src="https://img.shields.io/badge/Status-Pilot-9aa3a8?style=flat-square" alt="Pilot status" /></p>
 
-> **Private & confidential.** This repository is the golf-specific vertical and pilot application for State of Stick, Co. Shared platform authority, proprietary physical-object mechanisms, credentials, and production identity details remain outside this repository. The current build contains demonstration data and does not imply a live partner, production adoption, revenue, payment flow, or independently validated golf data.
+> **Public-repository boundary.** This repository is the golf-specific vertical and pilot application for State of Stick, Co. Shared platform authority, proprietary physical-object mechanisms, credentials, production identity details, and other non-public operational material remain outside this repository. The current build contains demonstration data and does not imply a live partner, production adoption, revenue, payment flow, or independently validated golf data.
 
 | PHYSICAL COURSE | DIGITAL DOORWAY | TRUSTED MEMORY |
 | --- | --- | --- |
