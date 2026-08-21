@@ -23,12 +23,12 @@ const trustLabel = (trust: string) => trust.replaceAll('_', ' ');
   <section class="page shell">
     <div class="league-hero">
       <div>
-        <div class="eyebrow">ONE SEASON · MANY COURSES</div>
+        <div class="eyebrow">SEASON CONCEPT · MANY COURSES</div>
         <h1>Play anywhere.<br /><em>Stay in the game.</em></h1>
         <p>A connected golf season for players who may never stand on the same fairway—but still want to compete in the same league.</p>
         <div class="button-row"><a class="button" href="/round/cedar-ridge/">Submit a round ↗</a><a class="button secondary" href="/passport/">Open passport</a><button class="button secondary" type="button">Join league</button></div>
       </div>
-      <div class="league-token"><span>SEASON ID</span><b>GL-OPEN-2026</b><small>● ACTIVE · {portableLeague.format.toUpperCase()}</small></div>
+      <div class="league-token"><span>SEASON ID</span><b>GL-OPEN-2026</b><small>● SIMULATED · {portableLeague.format.toUpperCase()}</small></div>
     </div>
 
     <div class="league-summary">
@@ -42,7 +42,7 @@ const trustLabel = (trust: string) => trust.replaceAll('_', ' ');
 
     <div class="league-grid">
       <div class="panel">
-        <div class="score-panel-head"><h2>Live season standings</h2><span class="live-pill">● UPDATED FROM ROUND RECORDS</span></div>
+        <div class="score-panel-head"><h2>Illustrative season standings</h2><span class="live-pill">● DEMO ROUND RECORDS</span></div>
         <div class="league-table">
           <div class="league-row league-header"><span>RANK</span><span>PLAYER</span><span>ROUNDS</span><span>POINTS</span></div>
           {leagueStandings.map((player, index) => <div class:list={['league-row', { 'league-row-you': player.golferId === andrea.id }]}>

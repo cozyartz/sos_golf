@@ -26,6 +26,26 @@ The physical product earns its place first. A numbered medallion, tee marker, ca
 
 Golf is not a second identity or commerce platform. State of Stick remains the authority for people, organizations, roles, entitlements, physical identity, commerce, payments, attribution, and governed AI policy. This repository owns golf-specific records and experiences: courses, holes, rounds, score context, leagues, events, services, operator workflows, and golf intelligence.
 
+## What the app does for people
+
+### For a golfer
+
+Golf gives a player one useful place for the round: tap into the course, see the right hole or service context, record official strokes, keep physical verification separate, and carry the finished round into a passport. A player can discover courses, join a portable league, follow an event, collect course moments, and understand what a record actually proves.
+
+### For a course operator
+
+Golf turns approved course knowledge and physical touchpoints into an operating layer. Staff can publish course context, manage tap points, review course claims, activate tee-time arrivals, review round and verification queues, fulfill service requests, publish announcements, and see recorded participation without replacing the tee sheet, POS, handicap system, or course-management software.
+
+### For a league or event
+
+Golf makes competition portable. A league can define eligible courses, format rules, evidence requirements, standings, check-in, challenges, and event moments while keeping each round's course, tees, score, and trust level attached. The system explains standings; it does not invent official results or decide winners through AI.
+
+### What the AI does
+
+Golf Intelligence is a bounded assistant over approved golf records. It can explain a round, summarize a league movement, answer a narrow course question, prepare an operator shift brief, identify unanswered topics, and suggest where a person may investigate next. It shows the source facts and provenance behind an answer.
+
+The AI cannot create an official score, change a standing, invent a course condition, set a price, fulfill an order, publish a rule, expose another player's private data, or take a consequential staff action. When approved context is missing, it says so. The first provider is deterministic rules logic; a future model provider remains subject to the same source, authorization, and provenance boundaries.
+
 ## The product in three layers
 
 ### ① Course — the physical moment
